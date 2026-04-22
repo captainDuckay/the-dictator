@@ -37,6 +37,16 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if appModel.isUsingFallbackCatalog {
+                    Label("Using fallback model catalog", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                Text(appModel.modelCatalogRefreshDescription)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
                 ForEach(appModel.availableModels) { descriptor in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
@@ -97,7 +107,7 @@ struct SettingsView: View {
                 }
 
                 Button("Refresh Model Catalog") {
-                    appModel.refreshModelCatalog()
+                    appModel.refreshModelCatalog(force: true)
                 }
 
                 Toggle("Use custom local model (Advanced)", isOn: binding(\.useCustomModelPath))

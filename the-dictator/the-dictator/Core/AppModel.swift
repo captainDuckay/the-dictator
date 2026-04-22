@@ -29,8 +29,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var modelDownloadStates: [String: ModelDownloadState] = [:]
     @Published private(set) var updateAvailableModelIDs: Set<String> = []
     @Published private(set) var modelManagerStatusMessage: String?
+    @Published private(set) var modelCatalogLastRefreshedAt: Date?
+    @Published private(set) var modelCatalogNextRetryAt: Date?
 
     private var isUsingFallbackModelCatalog: Bool = false
+    private var modelCatalogConsecutiveFailures: Int = 0
+    private var activeModelCatalogRefreshTask: Task<Void, Never>?
 
     let settingsStore: SettingsStore
     let sessionStore: SessionStore
@@ -346,18 +350,36 @@ final class AppModel: ObservableObject {
         )
     }
 
-    func refreshModelCatalog() {
-        Task { @MainActor in
+    func refreshModelCatalog(force: Bool = false) {
+        if activeModelCatalogRefreshTask != nil {
+            return
+        }
+
+        if !force, let nextRetryAt = modelCatalogNextRetryAt, Date() < nextRetryAt {
+            let remaining = max(Int(nextRetryAt.timeIntervalSinceNow.rounded()), 1)
+            modelManagerStatusMessage = "Model catalog retry scheduled in \(remaining)s."
+            return
+        }
+
+        activeModelCatalogRefreshTask = Task { @MainActor in
+            defer { activeModelCatalogRefreshTask = nil }
+
             do {
                 let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
                 let manifest = try await modelCatalogService.fetchManifest()
                 let compatible = modelCatalogService.compatibleModels(from: manifest, appVersion: appVersion)
                 availableModels = compatible.sorted { $0.diskBytes < $1.diskBytes }
                 isUsingFallbackModelCatalog = false
+                modelCatalogConsecutiveFailures = 0
+                modelCatalogNextRetryAt = nil
+                modelCatalogLastRefreshedAt = Date()
                 modelManagerStatusMessage = compatible.isEmpty ? "No compatible models available for this app version." : nil
             } catch {
                 availableModels = Self.fallbackModelCatalog
                 isUsingFallbackModelCatalog = true
+                modelCatalogConsecutiveFailures += 1
+                let retryDelay = Self.catalogRetryDelaySeconds(failureCount: modelCatalogConsecutiveFailures)
+                modelCatalogNextRetryAt = Date().addingTimeInterval(retryDelay)
                 modelManagerStatusMessage = "Unable to load online model catalog. Showing local fallback metadata."
             }
 
@@ -479,6 +501,28 @@ final class AppModel: ObservableObject {
         isModelInstalled(modelID) && !isBundledModel(modelID)
     }
 
+    var isUsingFallbackCatalog: Bool {
+        isUsingFallbackModelCatalog
+    }
+
+    var modelCatalogRefreshDescription: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+
+        let refreshedText: String
+        if let refreshedAt = modelCatalogLastRefreshedAt {
+            refreshedText = "Last refresh \(formatter.localizedString(for: refreshedAt, relativeTo: Date()))"
+        } else {
+            refreshedText = "Catalog not refreshed yet"
+        }
+
+        if let retryAt = modelCatalogNextRetryAt, Date() < retryAt {
+            return "\(refreshedText) • Retry \(formatter.localizedString(for: retryAt, relativeTo: Date()))"
+        }
+
+        return refreshedText
+    }
+
     var modelManagerOnboardingHint: String? {
         if isModelInstalled("base") {
             return "Balanced (base) is bundled and ready for offline dictation."
@@ -538,6 +582,12 @@ final class AppModel: ObservableObject {
         ]
 
         return candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) })
+    }
+
+    private static func catalogRetryDelaySeconds(failureCount: Int) -> TimeInterval {
+        let schedule: [TimeInterval] = [5, 15, 30, 60, 120, 300]
+        let index = min(max(failureCount - 1, 0), schedule.count - 1)
+        return schedule[index]
     }
 
     private func setupEscapeMonitoring() {
