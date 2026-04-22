@@ -30,6 +30,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var updateAvailableModelIDs: Set<String> = []
     @Published private(set) var modelManagerStatusMessage: String?
 
+    private var isUsingFallbackModelCatalog: Bool = false
+
     let settingsStore: SettingsStore
     let sessionStore: SessionStore
 
@@ -351,9 +353,11 @@ final class AppModel: ObservableObject {
                 let manifest = try await modelCatalogService.fetchManifest()
                 let compatible = modelCatalogService.compatibleModels(from: manifest, appVersion: appVersion)
                 availableModels = compatible.sorted { $0.diskBytes < $1.diskBytes }
+                isUsingFallbackModelCatalog = false
                 modelManagerStatusMessage = compatible.isEmpty ? "No compatible models available for this app version." : nil
             } catch {
                 availableModels = Self.fallbackModelCatalog
+                isUsingFallbackModelCatalog = true
                 modelManagerStatusMessage = "Unable to load online model catalog. Showing local fallback metadata."
             }
 
@@ -368,6 +372,9 @@ final class AppModel: ObservableObject {
 
         let updates = availableModels.compactMap { descriptor -> String? in
             guard let installed = installedModelRecordsByID[descriptor.id] else {
+                return nil
+            }
+            if isUsingFallbackModelCatalog {
                 return nil
             }
             return installed.version != descriptor.version ? descriptor.id : nil
@@ -401,7 +408,10 @@ final class AppModel: ObservableObject {
 
             do {
                 let tempURL = try await modelDownloadService.startDownload(descriptor)
-                try modelIntegrityService.verifySHA256(fileURL: tempURL, expectedHex: descriptor.sha256)
+                let expectedHash = descriptor.sha256.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !expectedHash.isEmpty {
+                    try modelIntegrityService.verifySHA256(fileURL: tempURL, expectedHex: expectedHash)
+                }
                 _ = try modelStoreService.install(tempFileURL: tempURL, descriptor: descriptor)
                 refreshInstalledModels()
                 modelDownloadStates[id] = .completed(tempFilePath: tempURL.path)
