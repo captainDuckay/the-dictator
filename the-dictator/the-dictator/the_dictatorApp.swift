@@ -1,17 +1,17 @@
-//
-//  the_dictatorApp.swift
-//  the-dictator
-//
-//  Created by Nicki Skipper on 18/04/2026.
-//
-
 import SwiftUI
 
 @main
-struct the_dictatorApp: App {
+struct TheDictatorApp: App {
+    @StateObject private var appModel = AppModel()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        MenuBarExtra("The Dictator", systemImage: appModel.menuBarSymbolName) {
+            MenuBarMenuView(appModel: appModel)
         }
+
+        Window("Settings", id: "settings") {
+            SettingsView(settingsStore: appModel.settingsStore, appModel: appModel)
+        }
+        .windowResizability(.contentSize)
     }
 }
