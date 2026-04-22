@@ -431,9 +431,15 @@ final class AppModel: ObservableObject {
     }
 
     func performRuntimeRecoveryAction() {
+        let previousModelID = settingsStore.settings.selectedModelID
         guard let recoveryModelID = runtimeRecoveryTargetModelID else {
             return
         }
+
+        AppLogger.info(
+            AppLogger.settings,
+            "Runtime recovery action: switching model from \(previousModelID) to \(recoveryModelID)."
+        )
 
         selectModel(id: recoveryModelID)
         if recoveryModelID == "base" {
