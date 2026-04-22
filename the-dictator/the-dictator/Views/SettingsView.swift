@@ -43,6 +43,12 @@ struct SettingsView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
+                if let runtimeIssue = appModel.transcriptionRuntimeIssue {
+                    Label(runtimeIssue, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
                 if appModel.isUsingFallbackCatalog {
                     Label("Using fallback model catalog", systemImage: "exclamationmark.triangle")
                         .font(.caption)

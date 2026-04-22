@@ -22,6 +22,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var accessibilityPermissionStatus: String = "Unknown"
     @Published private(set) var backendCapabilitiesDescription: String = "Unknown"
     @Published private(set) var modelRuntimePreflightDescription: String = "Checking bundled runtime assets…"
+    @Published private(set) var transcriptionRuntimeIssue: String?
     @Published private(set) var audioInputOptions: [AudioInputOption] = []
     @Published private(set) var selectedAudioInputOptionID: String = "systemDefault"
     @Published private(set) var audioInputStatusDescription: String = "Following System Default input."
@@ -37,6 +38,7 @@ final class AppModel: ObservableObject {
     private var isUsingFallbackModelCatalog: Bool = false
     private var modelCatalogConsecutiveFailures: Int = 0
     private var activeModelCatalogRefreshTask: Task<Void, Never>?
+    private var lastNotifiedRuntimeIssue: String?
 
     let settingsStore: SettingsStore
     let sessionStore: SessionStore
@@ -200,6 +202,7 @@ final class AppModel: ObservableObject {
         registerBundledBaseModelIfAvailable()
         refreshInstalledModels()
         refreshModelCatalog()
+        reevaluateTranscriptionRuntimeAvailability(notifyIfNeeded: false)
     }
 
     convenience init() {
@@ -409,6 +412,7 @@ final class AppModel: ObservableObject {
             return installed.version != descriptor.version ? descriptor.id : nil
         }
         updateAvailableModelIDs = Set(updates)
+        reevaluateTranscriptionRuntimeAvailability()
     }
 
     func isModelInstalled(_ modelID: String) -> Bool {
@@ -580,6 +584,61 @@ final class AppModel: ObservableObject {
         modelRuntimePreflightDescription = "\(cliStatus) • \(modelStatus)"
     }
 
+    private func reevaluateTranscriptionRuntimeAvailability(notifyIfNeeded: Bool = true) {
+        updateModelRuntimePreflightDescription()
+
+        let issue: String?
+        if !hasUsableWhisperExecutable() {
+            issue = "Transcription engine is unavailable. Reinstall the app or add whisper-cli to PATH."
+        } else if !settingsStore.settings.useCustomModelPath && installedModelIDs.isEmpty {
+            issue = "No managed model is installed. Open Settings → Transcription and download a model."
+        } else {
+            issue = nil
+        }
+
+        transcriptionRuntimeIssue = issue
+
+        guard notifyIfNeeded else {
+            return
+        }
+
+        if let issue, issue != lastNotifiedRuntimeIssue {
+            notificationService.show(title: "The Dictator", body: issue)
+            lastNotifiedRuntimeIssue = issue
+        } else if issue == nil {
+            lastNotifiedRuntimeIssue = nil
+        }
+    }
+
+    private func hasUsableWhisperExecutable() -> Bool {
+        if let bundledExecutable = Bundle.main.resourceURL?
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("whisper-cli", isDirectory: false),
+           FileManager.default.isExecutableFile(atPath: bundledExecutable.path) {
+            return true
+        }
+
+        let knownPaths = [
+            "/opt/homebrew/bin/whisper-cli",
+            "/usr/local/bin/whisper-cli",
+            "/usr/bin/whisper-cli",
+        ]
+
+        if knownPaths.contains(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            return true
+        }
+
+        let environmentPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
+        for pathEntry in environmentPath.split(separator: ":") {
+            let candidate = String(pathEntry) + "/whisper-cli"
+            if FileManager.default.isExecutableFile(atPath: candidate) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     private func registerBundledBaseModelIfAvailable() {
         guard let bundledModelURL = bundledBaseModelURL() else {
             return
@@ -655,6 +714,14 @@ final class AppModel: ObservableObject {
             .store(in: &cancellables)
 
         settingsStore.$settings
+            .map { "\($0.useCustomModelPath)|\($0.customModelPath)|\($0.selectedModelID)" }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.reevaluateTranscriptionRuntimeAvailability()
+            }
+            .store(in: &cancellables)
+
+        settingsStore.$settings
             .map { settings in
                 switch settings.audioInputPreference {
                 case .systemDefault:
@@ -714,6 +781,11 @@ final class AppModel: ObservableObject {
 
     private func onPushToTalkDown() async {
         guard workflowState == .idle, activeSessionID == nil else {
+            return
+        }
+
+        if let runtimeIssue = transcriptionRuntimeIssue {
+            notificationService.show(title: "The Dictator", body: runtimeIssue)
             return
         }
 
