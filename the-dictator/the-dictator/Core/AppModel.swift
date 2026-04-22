@@ -449,6 +449,14 @@ final class AppModel: ObservableObject {
         return "Disk: \(disk) • Est. RAM: \(ram)"
     }
 
+    func modelVersionHint(for descriptor: ManagedModelDescriptor) -> String {
+        let available = descriptor.version
+        if let installed = installedModelRecordsByID[descriptor.id]?.version {
+            return installed == available ? "Version: \(available)" : "Installed: \(installed) • Available: \(available)"
+        }
+        return "Available version: \(available)"
+    }
+
     func modelStatus(for modelID: String) -> String {
         if case .downloading(let progress) = modelDownloadStates[modelID] {
             return "Downloading \(Int(progress * 100))%"

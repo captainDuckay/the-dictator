@@ -46,11 +46,15 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
+                        Text(appModel.modelVersionHint(for: descriptor))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+
                         HStack {
                             Button("Use") {
                                 appModel.selectModel(id: descriptor.id)
                             }
-                            .disabled(!appModel.isModelInstalled(descriptor.id) && descriptor.downloadURL == nil)
+                            .disabled(!appModel.isModelInstalled(descriptor.id))
 
                             if appModel.isModelInstalled(descriptor.id) {
                                 if appModel.isModelUpdateAvailable(descriptor.id) {
