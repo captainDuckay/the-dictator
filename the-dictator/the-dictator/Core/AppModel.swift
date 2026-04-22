@@ -469,6 +469,14 @@ final class AppModel: ObservableObject {
         isModelInstalled(modelID) && !isBundledModel(modelID)
     }
 
+    var modelManagerOnboardingHint: String? {
+        if isModelInstalled("base") {
+            return "Balanced (base) is bundled and ready for offline dictation."
+        }
+
+        return "No bundled base model detected. Download a model to start dictation."
+    }
+
     func modelStatus(for modelID: String) -> String {
         if case .downloading(let progress) = modelDownloadStates[modelID] {
             return "Downloading \(Int(progress * 100))%"

@@ -31,6 +31,12 @@ struct SettingsView: View {
             Section("Transcription") {
                 TextField("Backend", text: binding(\.backendType))
 
+                if let hint = appModel.modelManagerOnboardingHint {
+                    Text(hint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 ForEach(appModel.availableModels) { descriptor in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {

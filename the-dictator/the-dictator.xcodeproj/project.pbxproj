@@ -261,6 +261,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_ModelManifestURL = "https://github.com/captainDuckay/the-dictator-models/releases/latest/download/manifest.json";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The Dictator needs microphone access to record your speech for transcription.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -296,6 +297,7 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_ModelManifestURL = "https://github.com/captainDuckay/the-dictator-models/releases/latest/download/manifest.json";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "The Dictator needs microphone access to record your speech for transcription.";
 				LD_RUNPATH_SEARCH_PATHS = (
