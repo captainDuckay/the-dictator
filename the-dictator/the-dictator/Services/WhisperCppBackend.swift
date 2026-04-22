@@ -100,7 +100,7 @@ final class WhisperCppBackend: TranscriptionBackend {
             supportsExplicitLanguageSelection: true,
             supportsCancellation: true,
             defaultTimeoutSeconds: 30,
-            notes: "Requires whisper-cli in PATH and a valid local model file path."
+            notes: "Requires bundled whisper-cli (or PATH fallback) and a valid local model file path."
         )
     }
 
@@ -109,6 +109,13 @@ final class WhisperCppBackend: TranscriptionBackend {
     }
 
     private func resolveExecutableURL() throws -> URL {
+        if let bundledExecutable = Bundle.main.resourceURL?
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent(executableName, isDirectory: false),
+           FileManager.default.isExecutableFile(atPath: bundledExecutable.path) {
+            return bundledExecutable
+        }
+
         let knownPaths = [
             "/opt/homebrew/bin/\(executableName)",
             "/usr/local/bin/\(executableName)",

@@ -652,7 +652,7 @@ final class AppModel: ObservableObject {
             )
         case .executableNotFound(let name):
             return .backendMisconfigured(
-                "\(name) is not installed or not in PATH. Install it (e.g. `brew install whisper-cpp`) or build whisper.cpp locally and add \(name) to PATH."
+                "\(name) is unavailable. Reinstall the app or use a build that includes the bundled transcription engine."
             )
         case .unsupportedBackend(let backend):
             return .backendMisconfigured(
