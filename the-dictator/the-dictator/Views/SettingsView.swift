@@ -44,9 +44,17 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
 
                 if let runtimeIssue = appModel.transcriptionRuntimeIssue {
-                    Label(runtimeIssue, systemImage: "exclamationmark.triangle.fill")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label(runtimeIssue, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+
+                        Button("Re-check Runtime") {
+                            appModel.refreshInstalledModels()
+                            appModel.refreshModelCatalog(force: true)
+                        }
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                    }
                 }
 
                 if appModel.isUsingFallbackCatalog {

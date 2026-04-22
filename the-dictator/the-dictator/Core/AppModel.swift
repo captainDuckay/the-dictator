@@ -587,11 +587,19 @@ final class AppModel: ObservableObject {
     private func reevaluateTranscriptionRuntimeAvailability(notifyIfNeeded: Bool = true) {
         updateModelRuntimePreflightDescription()
 
+        let settings = settingsStore.settings
+
         let issue: String?
         if !hasUsableWhisperExecutable() {
             issue = "Transcription engine is unavailable. Reinstall the app or add whisper-cli to PATH."
-        } else if !settingsStore.settings.useCustomModelPath && installedModelIDs.isEmpty {
-            issue = "No managed model is installed. Open Settings → Transcription and download a model."
+        } else if settings.useCustomModelPath {
+            if settings.customModelPath.isEmpty || !FileManager.default.fileExists(atPath: settings.customModelPath) {
+                issue = "Custom model file is unavailable. Choose a valid model file in Settings → Transcription."
+            } else {
+                issue = nil
+            }
+        } else if !isModelInstalled(settings.selectedModelID) {
+            issue = "Selected model \(settings.selectedModelID) is not installed. Open Settings → Transcription and download it in Model Manager."
         } else {
             issue = nil
         }
