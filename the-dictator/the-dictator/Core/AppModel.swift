@@ -24,6 +24,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var audioInputOptions: [AudioInputOption] = []
     @Published private(set) var selectedAudioInputOptionID: String = "systemDefault"
     @Published private(set) var audioInputStatusDescription: String = "Following System Default input."
+    @Published private(set) var availableModels: [ManagedModelDescriptor] = []
+    @Published private(set) var installedModelIDs: Set<String> = []
+    @Published private(set) var modelDownloadStates: [String: ModelDownloadState] = [:]
+    @Published private(set) var modelManagerStatusMessage: String?
 
     let settingsStore: SettingsStore
     let sessionStore: SessionStore
@@ -39,6 +43,10 @@ final class AppModel: ObservableObject {
     private let permissionsService: PermissionsService
     private let escapeMonitorService: EscapeMonitorService
     private let latencyTracker: LatencyTracker
+    private let modelStoreService: ModelStoreService
+    private let modelCatalogService: ModelCatalogService
+    private let modelDownloadService: ModelDownloadService
+    private let modelIntegrityService: ModelIntegrityService
 
     private var cancellables = Set<AnyCancellable>()
     private var recordingStartedAt: Date?
@@ -53,6 +61,79 @@ final class AppModel: ObservableObject {
         case preferredFallback(uid: String)
     }
 
+    private static let fallbackModelCatalog: [ManagedModelDescriptor] = [
+        ManagedModelDescriptor(
+            id: "tiny",
+            level: .tiny,
+            displayName: "Fastest",
+            technicalName: "tiny",
+            diskBytes: 78_000_000,
+            estimatedRamBytes: 350_000_000,
+            downloadURL: nil,
+            sha256: "",
+            version: "fallback",
+            bundled: false,
+            minAppVersion: "0.0.0",
+            maxAppVersion: nil
+        ),
+        ManagedModelDescriptor(
+            id: "base",
+            level: .base,
+            displayName: "Balanced",
+            technicalName: "base",
+            diskBytes: 142_000_000,
+            estimatedRamBytes: 500_000_000,
+            downloadURL: nil,
+            sha256: "",
+            version: "fallback",
+            bundled: true,
+            minAppVersion: "0.0.0",
+            maxAppVersion: nil
+        ),
+        ManagedModelDescriptor(
+            id: "small",
+            level: .small,
+            displayName: "Higher Accuracy",
+            technicalName: "small",
+            diskBytes: 488_000_000,
+            estimatedRamBytes: 1_300_000_000,
+            downloadURL: nil,
+            sha256: "",
+            version: "fallback",
+            bundled: false,
+            minAppVersion: "0.0.0",
+            maxAppVersion: nil
+        ),
+        ManagedModelDescriptor(
+            id: "medium",
+            level: .medium,
+            displayName: "High Accuracy",
+            technicalName: "medium",
+            diskBytes: 1_530_000_000,
+            estimatedRamBytes: 3_500_000_000,
+            downloadURL: nil,
+            sha256: "",
+            version: "fallback",
+            bundled: false,
+            minAppVersion: "0.0.0",
+            maxAppVersion: nil
+        ),
+        ManagedModelDescriptor(
+            id: "large",
+            level: .large,
+            displayName: "Best Accuracy",
+            technicalName: "large",
+            diskBytes: 3_100_000_000,
+            estimatedRamBytes: 6_500_000_000,
+            downloadURL: nil,
+            sha256: "",
+            version: "fallback",
+            bundled: false,
+            minAppVersion: "0.0.0",
+            maxAppVersion: nil
+        ),
+    ]
+
     init(
         settingsStore: SettingsStore,
         sessionStore: SessionStore,
@@ -66,7 +147,11 @@ final class AppModel: ObservableObject {
         textInsertionService: TextInsertionService,
         permissionsService: PermissionsService,
         escapeMonitorService: EscapeMonitorService,
-        latencyTracker: LatencyTracker
+        latencyTracker: LatencyTracker,
+        modelStoreService: ModelStoreService,
+        modelCatalogService: ModelCatalogService,
+        modelDownloadService: ModelDownloadService,
+        modelIntegrityService: ModelIntegrityService
     ) {
         self.settingsStore = settingsStore
         self.sessionStore = sessionStore
@@ -81,6 +166,10 @@ final class AppModel: ObservableObject {
         self.permissionsService = permissionsService
         self.escapeMonitorService = escapeMonitorService
         self.latencyTracker = latencyTracker
+        self.modelStoreService = modelStoreService
+        self.modelCatalogService = modelCatalogService
+        self.modelDownloadService = modelDownloadService
+        self.modelIntegrityService = modelIntegrityService
 
         notificationService.requestAuthorizationIfNeeded()
         permissionsService.runFirstLaunchChecksIfNeeded(notificationService: notificationService)
@@ -91,6 +180,8 @@ final class AppModel: ObservableObject {
         refreshPermissionStatuses()
         refreshBackendCapabilitiesDescription()
         refreshAudioInputState()
+        refreshInstalledModels()
+        refreshModelCatalog()
     }
 
     convenience init() {
@@ -107,6 +198,12 @@ final class AppModel: ObservableObject {
         let permissionsService = PermissionsService()
         let escapeMonitorService = EscapeMonitorService()
         let latencyTracker = LatencyTracker()
+        let modelStoreService = ModelStoreService()
+        let manifestURL = URL(string: "https://github.com/captainDuckay/the-dictator-models/releases/latest/download/manifest.json")
+            ?? URL(string: "https://example.com/manifest.json")!
+        let modelCatalogService = ModelCatalogService(manifestURL: manifestURL)
+        let modelDownloadService = ModelDownloadService()
+        let modelIntegrityService = ModelIntegrityService()
 
         self.init(
             settingsStore: settingsStore,
@@ -121,7 +218,11 @@ final class AppModel: ObservableObject {
             textInsertionService: textInsertionService,
             permissionsService: permissionsService,
             escapeMonitorService: escapeMonitorService,
-            latencyTracker: latencyTracker
+            latencyTracker: latencyTracker,
+            modelStoreService: modelStoreService,
+            modelCatalogService: modelCatalogService,
+            modelDownloadService: modelDownloadService,
+            modelIntegrityService: modelIntegrityService
         )
 
         if hotkeyService == nil {
@@ -234,6 +335,116 @@ final class AppModel: ObservableObject {
             useStateMachineInsertionState: false,
             sessionID: nil
         )
+    }
+
+    func refreshModelCatalog() {
+        Task { @MainActor in
+            do {
+                let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+                let manifest = try await modelCatalogService.fetchManifest()
+                let compatible = modelCatalogService.compatibleModels(from: manifest, appVersion: appVersion)
+                availableModels = compatible.sorted { $0.diskBytes < $1.diskBytes }
+                modelManagerStatusMessage = compatible.isEmpty ? "No compatible models available for this app version." : nil
+            } catch {
+                availableModels = Self.fallbackModelCatalog
+                modelManagerStatusMessage = "Unable to load online model catalog. Showing local fallback metadata."
+            }
+
+            refreshInstalledModels()
+        }
+    }
+
+    func refreshInstalledModels() {
+        installedModelIDs = Set(modelStoreService.allInstalled().map(\.modelID))
+    }
+
+    func isModelInstalled(_ modelID: String) -> Bool {
+        installedModelIDs.contains(modelID)
+    }
+
+    func selectModel(id: String) {
+        settingsStore.update { settings in
+            settings.selectedModelID = id
+            settings.useCustomModelPath = false
+        }
+    }
+
+    func downloadModel(id: String) {
+        guard let descriptor = availableModels.first(where: { $0.id == id }) else {
+            modelManagerStatusMessage = "Unknown model selection: \(id)."
+            return
+        }
+
+        Task { @MainActor in
+            modelDownloadStates[id] = .downloading(progress: 0)
+
+            do {
+                let tempURL = try await modelDownloadService.startDownload(descriptor)
+                try modelIntegrityService.verifySHA256(fileURL: tempURL, expectedHex: descriptor.sha256)
+                _ = try modelStoreService.install(tempFileURL: tempURL, descriptor: descriptor)
+                refreshInstalledModels()
+                modelDownloadStates[id] = .completed(tempFilePath: tempURL.path)
+                modelManagerStatusMessage = "Installed \(descriptor.displayName) (\(descriptor.technicalName))."
+            } catch {
+                if let downloadError = error as? ModelDownloadError, case .cancelled = downloadError {
+                    modelDownloadStates[id] = .idle
+                    modelManagerStatusMessage = "Download cancelled for \(descriptor.displayName)."
+                    return
+                }
+
+                modelDownloadStates[id] = .failed(message: error.localizedDescription)
+                modelManagerStatusMessage = "Failed to install \(descriptor.displayName): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func cancelModelDownload(id: String) {
+        modelDownloadService.cancelDownload(modelID: id)
+        modelDownloadStates[id] = .idle
+    }
+
+    func deleteModel(id: String) {
+        do {
+            try modelStoreService.delete(modelID: id)
+            refreshInstalledModels()
+            modelDownloadStates[id] = .idle
+            modelManagerStatusMessage = "Deleted model \(id)."
+        } catch {
+            modelManagerStatusMessage = "Failed to delete model \(id): \(error.localizedDescription)"
+        }
+    }
+
+    func modelLabel(for descriptor: ManagedModelDescriptor) -> String {
+        "\(descriptor.displayName) (\(descriptor.technicalName))"
+    }
+
+    func modelResourceHint(for descriptor: ManagedModelDescriptor) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB]
+        formatter.countStyle = .file
+        let disk = formatter.string(fromByteCount: descriptor.diskBytes)
+        let ram = formatter.string(fromByteCount: descriptor.estimatedRamBytes)
+        return "Disk: \(disk) • Est. RAM: \(ram)"
+    }
+
+    func modelStatus(for modelID: String) -> String {
+        if settingsStore.settings.selectedModelID == modelID && !settingsStore.settings.useCustomModelPath {
+            return isModelInstalled(modelID) ? "Active" : "Selected (not installed)"
+        }
+
+        if isModelInstalled(modelID) {
+            return "Installed"
+        }
+
+        if case .downloading(let progress) = modelDownloadStates[modelID] {
+            return "Downloading \(Int(progress * 100))%"
+        }
+
+        if case .failed = modelDownloadStates[modelID] {
+            return "Failed"
+        }
+
+        return "Not installed"
     }
 
     private func setupEscapeMonitoring() {

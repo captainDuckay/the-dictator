@@ -30,7 +30,62 @@ struct SettingsView: View {
 
             Section("Transcription") {
                 TextField("Backend", text: binding(\.backendType))
-                TextField("Model path", text: binding(\.modelPath))
+
+                ForEach(appModel.availableModels) { descriptor in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(appModel.modelLabel(for: descriptor))
+                                .fontWeight(settingsStore.settings.selectedModelID == descriptor.id && !settingsStore.settings.useCustomModelPath ? .semibold : .regular)
+                            Spacer()
+                            Text(appModel.modelStatus(for: descriptor.id))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Text(appModel.modelResourceHint(for: descriptor))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        HStack {
+                            Button("Use") {
+                                appModel.selectModel(id: descriptor.id)
+                            }
+                            .disabled(!appModel.isModelInstalled(descriptor.id) && descriptor.downloadURL == nil)
+
+                            if appModel.isModelInstalled(descriptor.id) {
+                                Button("Delete") {
+                                    appModel.deleteModel(id: descriptor.id)
+                                }
+                            } else if case .downloading = appModel.modelDownloadStates[descriptor.id] {
+                                Button("Cancel") {
+                                    appModel.cancelModelDownload(id: descriptor.id)
+                                }
+                            } else {
+                                Button("Download") {
+                                    appModel.downloadModel(id: descriptor.id)
+                                }
+                                .disabled(descriptor.downloadURL == nil)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+
+                if let modelManagerStatusMessage = appModel.modelManagerStatusMessage {
+                    Text(modelManagerStatusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Button("Refresh Model Catalog") {
+                    appModel.refreshModelCatalog()
+                }
+
+                Toggle("Use custom local model (Advanced)", isOn: binding(\.useCustomModelPath))
+                if settingsStore.settings.useCustomModelPath {
+                    TextField("Custom model path", text: binding(\.customModelPath))
+                }
+
                 Toggle("Auto-detect language", isOn: binding(\.languageAutoDetect))
                 TextField("Preferred language", text: binding(\.preferredLanguage))
                 Toggle("Polished output", isOn: binding(\.polishedOutputEnabled))
