@@ -430,6 +430,16 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func performRuntimeRecoveryAction() {
+        guard runtimeRecoveryActionTitle != nil else {
+            return
+        }
+
+        selectModel(id: "base")
+        modelManagerStatusMessage = "Switched to bundled base model."
+        reevaluateTranscriptionRuntimeAvailability(notifyIfNeeded: false)
+    }
+
     func downloadModel(id: String) {
         guard let descriptor = availableModels.first(where: { $0.id == id }) else {
             modelManagerStatusMessage = "Unknown model selection: \(id)."
@@ -540,6 +550,19 @@ final class AppModel: ObservableObject {
         }
 
         return "No bundled base model detected. Download a model to start dictation."
+    }
+
+    var runtimeRecoveryActionTitle: String? {
+        let settings = settingsStore.settings
+        guard !settings.useCustomModelPath,
+              settings.selectedModelID != "base",
+              !isModelInstalled(settings.selectedModelID),
+              isModelInstalled("base")
+        else {
+            return nil
+        }
+
+        return "Use bundled base model"
     }
 
     func modelStatus(for modelID: String) -> String {

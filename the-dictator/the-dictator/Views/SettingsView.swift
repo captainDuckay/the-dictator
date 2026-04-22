@@ -49,11 +49,20 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.orange)
 
-                        Button("Re-check Runtime") {
-                            appModel.refreshInstalledModels()
-                            appModel.refreshModelCatalog(force: true)
+                        HStack {
+                            if let recoveryTitle = appModel.runtimeRecoveryActionTitle {
+                                Button(recoveryTitle) {
+                                    appModel.performRuntimeRecoveryAction()
+                                }
+                                .font(.caption)
+                            }
+
+                            Button("Re-check Runtime") {
+                                appModel.refreshInstalledModels()
+                                appModel.refreshModelCatalog(force: true)
+                            }
+                            .font(.caption)
                         }
-                        .font(.caption)
                     }
                 }
 
