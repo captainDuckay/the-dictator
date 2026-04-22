@@ -425,6 +425,11 @@ final class AppModel: ObservableObject {
     }
 
     func deleteModel(id: String) {
+        guard canDeleteModel(id) else {
+            modelManagerStatusMessage = "\(id) is bundled with the app and cannot be deleted."
+            return
+        }
+
         do {
             try modelStoreService.delete(modelID: id)
             refreshInstalledModels()
@@ -456,6 +461,14 @@ final class AppModel: ObservableObject {
         return "Available version: \(available)"
     }
 
+    func isBundledModel(_ modelID: String) -> Bool {
+        availableModels.first(where: { $0.id == modelID })?.bundled ?? false
+    }
+
+    func canDeleteModel(_ modelID: String) -> Bool {
+        isModelInstalled(modelID) && !isBundledModel(modelID)
+    }
+
     func modelStatus(for modelID: String) -> String {
         if case .downloading(let progress) = modelDownloadStates[modelID] {
             return "Downloading \(Int(progress * 100))%"
@@ -473,6 +486,9 @@ final class AppModel: ObservableObject {
         }
 
         if isModelInstalled(modelID) {
+            if isBundledModel(modelID) {
+                return isModelUpdateAvailable(modelID) ? "Bundled • Update available" : "Bundled"
+            }
             return isModelUpdateAvailable(modelID) ? "Installed • Update available" : "Installed"
         }
 

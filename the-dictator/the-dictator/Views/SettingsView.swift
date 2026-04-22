@@ -64,8 +64,10 @@ struct SettingsView: View {
                                     .disabled(descriptor.downloadURL == nil)
                                 }
 
-                                Button("Delete") {
-                                    appModel.deleteModel(id: descriptor.id)
+                                if appModel.canDeleteModel(descriptor.id) {
+                                    Button("Delete") {
+                                        appModel.deleteModel(id: descriptor.id)
+                                    }
                                 }
                             } else if case .downloading = appModel.modelDownloadStates[descriptor.id] {
                                 Button("Cancel") {
