@@ -20,7 +20,7 @@
 ### Remaining for ship-ready
 1. Bundle actual production artifacts
    - `Resources/bin/whisper-cli`
-   - `Resources/models/base/model.bin`
+   - `Resources/models/base/model.bin` (local file; fetch via `scripts/fetch-bundled-base-model.sh` because it is gitignored)
 2. Wire release manifest + model assets in GitHub Releases
    - real URLs
    - real SHA-256 values
@@ -36,6 +36,7 @@
 
 ## Suggested finish sequence
 1. Bundle artifacts and verify startup detects bundled base model.
+   - Fetch base model locally: `scripts/fetch-bundled-base-model.sh`
    - Optional helper: `scripts/verify-bundled-assets.sh /path/to/the-dictator.app`
    - Ship preflight: `scripts/release-preflight.sh /path/to/the-dictator.app`
 2. Publish first real manifest + one downloadable non-base model.
