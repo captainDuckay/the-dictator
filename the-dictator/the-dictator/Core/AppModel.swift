@@ -12,6 +12,7 @@ final class AppModel: ObservableObject {
     }
     @Published private(set) var microphonePermissionStatus: String = "Unknown"
     @Published private(set) var accessibilityPermissionStatus: String = "Unknown"
+    @Published private(set) var backendCapabilitiesDescription: String = "Unknown"
 
     let settingsStore: SettingsStore
     let sessionStore: SessionStore
@@ -67,6 +68,7 @@ final class AppModel: ObservableObject {
         registerPushToTalkHotkey()
         setupEscapeMonitoring()
         refreshPermissionStatuses()
+        refreshBackendCapabilitiesDescription()
     }
 
     convenience init() {
@@ -216,6 +218,14 @@ final class AppModel: ObservableObject {
                 self?.registerPushToTalkHotkey()
             }
             .store(in: &cancellables)
+
+        settingsStore.$settings
+            .map(\.backendType)
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.refreshBackendCapabilitiesDescription()
+            }
+            .store(in: &cancellables)
     }
 
     private func registerPushToTalkHotkey() {
@@ -228,6 +238,21 @@ final class AppModel: ObservableObject {
         } catch {
             AppLogger.error(AppLogger.app, "Hotkey registration failed: \(error.localizedDescription)")
             notificationService.show(title: "The Dictator", body: "Failed to register push-to-talk hotkey.")
+        }
+    }
+
+    private func refreshBackendCapabilitiesDescription() {
+        do {
+            let capabilities = try transcriptionService.capabilities(for: settingsStore.settings.backendType)
+            let autoDetect = capabilities.supportsLanguageAutoDetect ? "yes" : "no"
+            let explicitLanguage = capabilities.supportsExplicitLanguageSelection ? "yes" : "no"
+            let cancellation = capabilities.supportsCancellation ? "yes" : "no"
+            let timeout = Int(capabilities.defaultTimeoutSeconds)
+            let notes = capabilities.notes.map { " | \($0)" } ?? ""
+
+            backendCapabilitiesDescription = "Auto-detect: \(autoDetect), language select: \(explicitLanguage), cancel: \(cancellation), timeout: \(timeout)s\(notes)"
+        } catch {
+            backendCapabilitiesDescription = "Unavailable for backend: \(settingsStore.settings.backendType)"
         }
     }
 
@@ -420,8 +445,24 @@ final class AppModel: ObservableObject {
         switch transcriptionError {
         case .cancelled:
             return .cancelled
-        case .modelPathMissing, .modelPathInvalid, .backendLoadFailed, .executableNotFound, .unsupportedBackend:
-            return .backendUnavailable
+        case .modelPathMissing:
+            return .backendMisconfigured(
+                "Model path is missing. Open Settings → Transcription and set a local whisper model path."
+            )
+        case .modelPathInvalid(let path):
+            return .backendMisconfigured(
+                "Model path is invalid: \(path). Open Settings → Transcription and choose a valid model file."
+            )
+        case .executableNotFound(let name):
+            return .backendMisconfigured(
+                "\(name) is not installed or not in PATH. Install it (e.g. `brew install whisper-cpp`) or build whisper.cpp locally and add \(name) to PATH."
+            )
+        case .unsupportedBackend(let backend):
+            return .backendMisconfigured(
+                "Unsupported backend: \(backend). Set backend to whisper.cpp in Settings → Transcription."
+            )
+        case .backendLoadFailed(let message):
+            return .backendMisconfigured("Backend failed to load: \(message)")
         case .timedOut, .emptyTranscript, .backendRuntimeFailed:
             return .transcriptionFailed
         }

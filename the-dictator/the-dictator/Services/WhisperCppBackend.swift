@@ -94,6 +94,16 @@ final class WhisperCppBackend: TranscriptionBackend {
         return TranscriptResult(text: stdoutText, backend: backendType)
     }
 
+    func capabilities() -> BackendCapabilities {
+        BackendCapabilities(
+            supportsLanguageAutoDetect: true,
+            supportsExplicitLanguageSelection: true,
+            supportsCancellation: true,
+            defaultTimeoutSeconds: 30,
+            notes: "Requires whisper-cli in PATH and a valid local model file path."
+        )
+    }
+
     func cancelTranscription() {
         activeProcess?.terminate()
     }

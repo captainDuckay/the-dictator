@@ -17,6 +17,13 @@ struct SettingsView: View {
                 Toggle("Auto-detect language", isOn: binding(\.languageAutoDetect))
                 TextField("Preferred language", text: binding(\.preferredLanguage))
                 Toggle("Polished output", isOn: binding(\.polishedOutputEnabled))
+
+                LabeledContent("Capabilities") {
+                    Text(appModel.backendCapabilitiesDescription)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.trailing)
+                }
             }
 
             Section("Audio") {

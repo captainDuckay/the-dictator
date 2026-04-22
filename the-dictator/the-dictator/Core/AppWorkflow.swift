@@ -22,6 +22,7 @@ enum AppWorkflowEvent: Equatable {
 enum AppWorkflowError: LocalizedError, Equatable {
     case permissionsDenied
     case backendUnavailable
+    case backendMisconfigured(String)
     case transcriptionFailed
     case insertionFailed
     case noActiveTarget
@@ -34,6 +35,8 @@ enum AppWorkflowError: LocalizedError, Equatable {
             return "Required permissions are missing."
         case .backendUnavailable:
             return "Transcription backend is not configured yet."
+        case .backendMisconfigured(let message):
+            return message
         case .transcriptionFailed:
             return "Transcription failed."
         case .insertionFailed:

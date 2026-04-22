@@ -16,6 +16,14 @@ struct TranscriptResult: Equatable {
     let backend: String
 }
 
+struct BackendCapabilities: Equatable {
+    let supportsLanguageAutoDetect: Bool
+    let supportsExplicitLanguageSelection: Bool
+    let supportsCancellation: Bool
+    let defaultTimeoutSeconds: TimeInterval
+    let notes: String?
+}
+
 enum TranscriptionError: LocalizedError, Equatable {
     case unsupportedBackend(String)
     case modelPathMissing
@@ -56,5 +64,6 @@ protocol TranscriptionBackend: AnyObject {
 
     func load(config: BackendConfig) throws
     func transcribe(audioURL: URL, options: TranscriptionOptions) async throws -> TranscriptResult
+    func capabilities() -> BackendCapabilities
     func cancelTranscription()
 }

@@ -18,13 +18,14 @@ final class TranscriptionService {
 
         let task = Task<TranscriptResult, Error> {
             let backend = try self.backend(for: settings.backendType)
+            let capabilities = backend.capabilities()
             try backend.load(config: BackendConfig(modelPath: settings.modelPath))
 
             let options = TranscriptionOptions(
                 languageAutoDetect: settings.languageAutoDetect,
                 preferredLanguage: settings.preferredLanguage,
                 polishedOutputEnabled: settings.polishedOutputEnabled,
-                timeoutSeconds: 30
+                timeoutSeconds: capabilities.defaultTimeoutSeconds
             )
 
             let result = try await self.withTimeout(seconds: options.timeoutSeconds) {
@@ -54,6 +55,10 @@ final class TranscriptionService {
 
             throw TranscriptionError.backendRuntimeFailed(error.localizedDescription)
         }
+    }
+
+    func capabilities(for backendType: String) throws -> BackendCapabilities {
+        try backend(for: backendType).capabilities()
     }
 
     func cancelInFlightTranscription() {
