@@ -646,6 +646,10 @@ final class AppModel: ObservableObject {
             return .backendMisconfigured(
                 "Model path is invalid: \(path). Open Settings → Transcription and choose a valid model file."
             )
+        case .modelNotInstalled(let modelID):
+            return .backendMisconfigured(
+                "Selected model \(modelID) is not installed. Open Settings → Transcription and download it in Model Manager."
+            )
         case .executableNotFound(let name):
             return .backendMisconfigured(
                 "\(name) is not installed or not in PATH. Install it (e.g. `brew install whisper-cpp`) or build whisper.cpp locally and add \(name) to PATH."

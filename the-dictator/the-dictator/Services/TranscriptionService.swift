@@ -3,14 +3,22 @@ import Foundation
 @MainActor
 final class TranscriptionService {
     private let whisperCppBackend: TranscriptionBackend
+    private let modelStoreService: ModelStoreService
     private var activeTask: Task<TranscriptResult, Error>?
 
-    init(whisperCppBackend: TranscriptionBackend) {
+    init(
+        whisperCppBackend: TranscriptionBackend,
+        modelStoreService: ModelStoreService
+    ) {
         self.whisperCppBackend = whisperCppBackend
+        self.modelStoreService = modelStoreService
     }
 
     convenience init() {
-        self.init(whisperCppBackend: WhisperCppBackend())
+        self.init(
+            whisperCppBackend: WhisperCppBackend(),
+            modelStoreService: ModelStoreService()
+        )
     }
 
     func transcribe(audioURL: URL, settings: AppSettings) async throws -> TranscriptResult {
@@ -19,7 +27,14 @@ final class TranscriptionService {
         let task = Task<TranscriptResult, Error> {
             let backend = try self.backend(for: settings.backendType)
             let capabilities = backend.capabilities()
-            try backend.load(config: BackendConfig(modelPath: settings.modelPath))
+            let resolvedModel = try self.resolveModelSelection(from: settings)
+            try backend.load(
+                config: BackendConfig(
+                    modelPath: resolvedModel.path,
+                    modelID: resolvedModel.modelID,
+                    isManagedModel: resolvedModel.isManaged
+                )
+            )
 
             let options = TranscriptionOptions(
                 languageAutoDetect: settings.languageAutoDetect,
@@ -74,6 +89,27 @@ final class TranscriptionService {
         }
 
         throw TranscriptionError.unsupportedBackend(backendType)
+    }
+
+    private func resolveModelSelection(from settings: AppSettings) throws -> (path: String, modelID: String?, isManaged: Bool) {
+        if settings.useCustomModelPath {
+            let normalizedCustomPath = settings.customModelPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedCustomPath.isEmpty else {
+                throw TranscriptionError.modelPathMissing
+            }
+            return (normalizedCustomPath, nil, false)
+        }
+
+        let normalizedModelID = settings.selectedModelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedModelID.isEmpty else {
+            throw TranscriptionError.modelNotInstalled("base")
+        }
+
+        guard let localPath = modelStoreService.localPath(for: normalizedModelID) else {
+            throw TranscriptionError.modelNotInstalled(normalizedModelID)
+        }
+
+        return (localPath, normalizedModelID, true)
     }
 
     private func polishIfNeeded(_ text: String, enabled: Bool) -> String {

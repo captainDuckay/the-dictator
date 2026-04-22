@@ -2,6 +2,8 @@ import Foundation
 
 struct BackendConfig: Equatable {
     let modelPath: String
+    let modelID: String?
+    let isManagedModel: Bool
 }
 
 struct TranscriptionOptions: Equatable {
@@ -29,6 +31,7 @@ enum TranscriptionError: LocalizedError, Equatable {
     case modelPathMissing
     case modelPathInvalid(String)
     case backendLoadFailed(String)
+    case modelNotInstalled(String)
     case executableNotFound(String)
     case backendRuntimeFailed(String)
     case timedOut(TimeInterval)
@@ -45,6 +48,8 @@ enum TranscriptionError: LocalizedError, Equatable {
             return "Model path is invalid: \(path)."
         case .backendLoadFailed(let message):
             return "Failed to load backend: \(message)."
+        case .modelNotInstalled(let modelID):
+            return "Selected model is not installed: \(modelID)."
         case .executableNotFound(let name):
             return "Could not find backend executable: \(name)."
         case .backendRuntimeFailed(let message):
