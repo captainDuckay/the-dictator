@@ -85,19 +85,40 @@ final class ModelStoreService {
         return destinationURL.path
     }
 
+    func registerBundledModel(modelID: String, version: String, fileURL: URL) throws {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            return
+        }
+
+        var index = loadIndex()
+        index.records.removeAll { $0.modelID == modelID }
+        index.records.append(
+            InstalledModelRecord(
+                modelID: modelID,
+                version: version,
+                localPath: fileURL.path,
+                installedAt: Date()
+            )
+        )
+        try saveIndex(index)
+    }
+
     func delete(modelID: String) throws {
         var index = loadIndex()
         let toDelete = index.records.filter { $0.modelID == modelID }
 
         for record in toDelete {
             let fileURL = URL(fileURLWithPath: record.localPath, isDirectory: false)
-            if fileManager.fileExists(atPath: fileURL.path) {
+            let isBundled = fileURL.path.hasPrefix(Bundle.main.bundlePath)
+            if !isBundled, fileManager.fileExists(atPath: fileURL.path) {
                 try fileManager.removeItem(at: fileURL)
             }
 
-            let versionDirectory = fileURL.deletingLastPathComponent()
-            if fileManager.fileExists(atPath: versionDirectory.path) {
-                try? fileManager.removeItem(at: versionDirectory)
+            if !isBundled {
+                let versionDirectory = fileURL.deletingLastPathComponent()
+                if fileManager.fileExists(atPath: versionDirectory.path) {
+                    try? fileManager.removeItem(at: versionDirectory)
+                }
             }
         }
 

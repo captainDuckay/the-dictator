@@ -188,6 +188,7 @@ final class AppModel: ObservableObject {
         refreshPermissionStatuses()
         refreshBackendCapabilitiesDescription()
         refreshAudioInputState()
+        registerBundledBaseModelIfAvailable()
         refreshInstalledModels()
         refreshModelCatalog()
     }
@@ -207,9 +208,7 @@ final class AppModel: ObservableObject {
         let escapeMonitorService = EscapeMonitorService()
         let latencyTracker = LatencyTracker()
         let modelStoreService = ModelStoreService()
-        let manifestURL = URL(string: "https://github.com/captainDuckay/the-dictator-models/releases/latest/download/manifest.json")
-            ?? URL(string: "https://example.com/manifest.json")!
-        let modelCatalogService = ModelCatalogService(manifestURL: manifestURL)
+        let modelCatalogService = ModelCatalogService(manifestURL: AppConfiguration.modelManifestURL)
         let modelDownloadService = ModelDownloadService()
         let modelIntegrityService = ModelIntegrityService()
 
@@ -478,6 +477,33 @@ final class AppModel: ObservableObject {
         }
 
         return "Not installed"
+    }
+
+    private func registerBundledBaseModelIfAvailable() {
+        guard let bundledModelURL = bundledBaseModelURL() else {
+            return
+        }
+
+        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+        do {
+            try modelStoreService.registerBundledModel(modelID: "base", version: appVersion, fileURL: bundledModelURL)
+        } catch {
+            AppLogger.error(AppLogger.settings, "Failed to register bundled base model: \(error.localizedDescription)")
+        }
+    }
+
+    private func bundledBaseModelURL() -> URL? {
+        guard let resourceURL = Bundle.main.resourceURL else {
+            return nil
+        }
+
+        let candidates = [
+            resourceURL.appendingPathComponent("models/base/model.bin", isDirectory: false),
+            resourceURL.appendingPathComponent("models/base.bin", isDirectory: false),
+            resourceURL.appendingPathComponent("base.bin", isDirectory: false),
+        ]
+
+        return candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) })
     }
 
     private func setupEscapeMonitoring() {
