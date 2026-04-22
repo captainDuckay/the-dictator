@@ -9,7 +9,7 @@ struct TheDictatorApp: App {
             MenuBarMenuView(appModel: appModel)
         }
 
-        Window("Settings", id: "settings") {
+        Settings {
             SettingsView(settingsStore: appModel.settingsStore, appModel: appModel)
         }
         .windowResizability(.contentSize)

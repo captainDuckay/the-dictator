@@ -7,8 +7,25 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Hotkeys") {
-                TextField("Push-to-talk hotkey", text: binding(\.pushToTalkHotkey))
-                TextField("Paste last transcript hotkey", text: binding(\.pasteLastTranscriptHotkey))
+                LabeledContent("Push-to-talk") {
+                    HotkeyRecorderField(
+                        value: binding(\.pushToTalkHotkey),
+                        placeholder: "Press shortcut"
+                    )
+                    .frame(width: 220)
+                }
+
+                LabeledContent("Paste last transcript") {
+                    HotkeyRecorderField(
+                        value: binding(\.pasteLastTranscriptHotkey),
+                        placeholder: "Press shortcut"
+                    )
+                    .frame(width: 220)
+                }
+
+                Text("Shortcuts can be modifier-only (for example Right Option) or modifier + key combinations (for example Control + 8, Option + F8).")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Transcription") {

@@ -233,11 +233,19 @@ final class AppModel: ObservableObject {
             return
         }
 
+        let configuredHotkey = settingsStore.settings.pushToTalkHotkey
+        let displayHotkey = HotkeyParser.displayName(forStoredValue: configuredHotkey)
+
         do {
-            try hotkeyService.register(from: settingsStore.settings.pushToTalkHotkey)
+            try hotkeyService.register(from: configuredHotkey)
+            AppLogger.info(AppLogger.app, "Push-to-talk hotkey active: \(displayHotkey)")
         } catch {
-            AppLogger.error(AppLogger.app, "Hotkey registration failed: \(error.localizedDescription)")
-            notificationService.show(title: "The Dictator", body: "Failed to register push-to-talk hotkey.")
+            hotkeyService.unregister()
+            AppLogger.error(AppLogger.app, "Hotkey registration failed for '\(displayHotkey)': \(error.localizedDescription)")
+            notificationService.show(
+                title: "The Dictator",
+                body: "Failed to register push-to-talk hotkey: \(displayHotkey). Choose a different shortcut in Settings."
+            )
         }
     }
 

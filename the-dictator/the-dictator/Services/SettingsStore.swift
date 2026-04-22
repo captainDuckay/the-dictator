@@ -2,8 +2,8 @@ import Combine
 import Foundation
 
 struct AppSettings: Codable, Equatable {
-    var pushToTalkHotkey: String = "Right Option"
-    var pasteLastTranscriptHotkey: String = "Shift + Right Option"
+    var pushToTalkHotkey: String = "Option + F8"
+    var pasteLastTranscriptHotkey: String = "Shift + Option + F8"
     var backendType: String = "whisper.cpp"
     var modelPath: String = ""
     var languageAutoDetect: Bool = true
@@ -54,8 +54,13 @@ final class SettingsStore: ObservableObject {
 
     private static func validated(_ settings: AppSettings) -> AppSettings {
         var next = settings
-        next.pushToTalkHotkey = normalized(next.pushToTalkHotkey, fallback: "Right Option")
-        next.pasteLastTranscriptHotkey = normalized(next.pasteLastTranscriptHotkey, fallback: "Shift + Right Option")
+
+        let pushToTalkCandidate = normalized(next.pushToTalkHotkey, fallback: "Option + F8")
+        next.pushToTalkHotkey = HotkeyParser.parse(pushToTalkCandidate) == nil ? "Option + F8" : pushToTalkCandidate
+
+        let pasteCandidate = normalized(next.pasteLastTranscriptHotkey, fallback: "Shift + Option + F8")
+        next.pasteLastTranscriptHotkey = HotkeyParser.parse(pasteCandidate) == nil ? "Shift + Option + F8" : pasteCandidate
+
         next.backendType = normalized(next.backendType, fallback: "whisper.cpp")
         next.preferredLanguage = normalized(next.preferredLanguage, fallback: "en")
         return next

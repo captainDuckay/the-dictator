@@ -3,12 +3,13 @@ import SwiftUI
 
 struct MenuBarMenuView: View {
     @ObservedObject var appModel: AppModel
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         Group {
             Button("Settings…") {
-                openWindow(id: "settings")
+                NSApplication.shared.activate(ignoringOtherApps: true)
+                openSettings()
             }
 
             Button("Paste Last Transcript") {
