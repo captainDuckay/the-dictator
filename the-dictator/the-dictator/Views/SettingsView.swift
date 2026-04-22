@@ -53,6 +53,13 @@ struct SettingsView: View {
                             .disabled(!appModel.isModelInstalled(descriptor.id) && descriptor.downloadURL == nil)
 
                             if appModel.isModelInstalled(descriptor.id) {
+                                if appModel.isModelUpdateAvailable(descriptor.id) {
+                                    Button("Update") {
+                                        appModel.downloadModel(id: descriptor.id)
+                                    }
+                                    .disabled(descriptor.downloadURL == nil)
+                                }
+
                                 Button("Delete") {
                                     appModel.deleteModel(id: descriptor.id)
                                 }

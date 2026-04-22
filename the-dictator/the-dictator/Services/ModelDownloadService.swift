@@ -33,6 +33,8 @@ final class ModelDownloadService: NSObject, URLSessionDownloadDelegate {
         let continuation: CheckedContinuation<URL, Error>
     }
 
+    var onStateChange: ((_ modelID: String, _ state: ModelDownloadState) -> Void)?
+
     private let stateQueue = DispatchQueue(label: "captainDuckay.the-dictator.model-download-service")
     private lazy var session: URLSession = {
         URLSession(configuration: .default, delegate: self, delegateQueue: nil)
@@ -65,7 +67,7 @@ final class ModelDownloadService: NSObject, URLSessionDownloadDelegate {
                 self.modelTasks[descriptor.id] = task
                 self.taskToModelID[task.taskIdentifier] = descriptor.id
                 self.pendingByTaskID[task.taskIdentifier] = PendingDownload(modelID: descriptor.id, continuation: continuation)
-                self.modelStates[descriptor.id] = .downloading(progress: 0)
+                self.updateState(modelID: descriptor.id, state: .downloading(progress: 0))
                 task.resume()
             }
         }
@@ -93,7 +95,7 @@ final class ModelDownloadService: NSObject, URLSessionDownloadDelegate {
                 return
             }
 
-            self.modelStates[modelID] = .downloading(progress: min(max(progress, 0), 1))
+            self.updateState(modelID: modelID, state: .downloading(progress: min(max(progress, 0), 1)))
         }
     }
 
@@ -103,7 +105,7 @@ final class ModelDownloadService: NSObject, URLSessionDownloadDelegate {
                 return
             }
 
-            self.modelStates[pending.modelID] = .completed(tempFilePath: location.path)
+            self.updateState(modelID: pending.modelID, state: .completed(tempFilePath: location.path))
             pending.continuation.resume(returning: location)
             self.clearTracking(taskID: downloadTask.taskIdentifier, modelID: pending.modelID)
         }
@@ -121,10 +123,10 @@ final class ModelDownloadService: NSObject, URLSessionDownloadDelegate {
 
             let nsError = error as NSError
             if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
-                self.modelStates[pending.modelID] = .idle
+                self.updateState(modelID: pending.modelID, state: .idle)
                 pending.continuation.resume(throwing: ModelDownloadError.cancelled)
             } else {
-                self.modelStates[pending.modelID] = .failed(message: error.localizedDescription)
+                self.updateState(modelID: pending.modelID, state: .failed(message: error.localizedDescription))
                 pending.continuation.resume(throwing: ModelDownloadError.failed(error.localizedDescription))
             }
 
@@ -136,5 +138,10 @@ final class ModelDownloadService: NSObject, URLSessionDownloadDelegate {
         pendingByTaskID[taskID] = nil
         taskToModelID[taskID] = nil
         modelTasks[modelID] = nil
+    }
+
+    private func updateState(modelID: String, state: ModelDownloadState) {
+        modelStates[modelID] = state
+        onStateChange?(modelID, state)
     }
 }

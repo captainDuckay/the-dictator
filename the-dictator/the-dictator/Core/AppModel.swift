@@ -27,6 +27,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var availableModels: [ManagedModelDescriptor] = []
     @Published private(set) var installedModelIDs: Set<String> = []
     @Published private(set) var modelDownloadStates: [String: ModelDownloadState] = [:]
+    @Published private(set) var updateAvailableModelIDs: Set<String> = []
     @Published private(set) var modelManagerStatusMessage: String?
 
     let settingsStore: SettingsStore
@@ -50,6 +51,7 @@ final class AppModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private var recordingStartedAt: Date?
+    private var installedModelRecordsByID: [String: InstalledModelRecord] = [:]
     private var activeTranscriptionTask: Task<Void, Never>?
     private var activeInsertionTask: Task<Void, Never>?
     private var activeSessionID: UUID?
@@ -170,6 +172,12 @@ final class AppModel: ObservableObject {
         self.modelCatalogService = modelCatalogService
         self.modelDownloadService = modelDownloadService
         self.modelIntegrityService = modelIntegrityService
+
+        self.modelDownloadService.onStateChange = { [weak self] modelID, state in
+            Task { @MainActor in
+                self?.modelDownloadStates[modelID] = state
+            }
+        }
 
         notificationService.requestAuthorizationIfNeeded()
         permissionsService.runFirstLaunchChecksIfNeeded(notificationService: notificationService)
@@ -355,11 +363,25 @@ final class AppModel: ObservableObject {
     }
 
     func refreshInstalledModels() {
-        installedModelIDs = Set(modelStoreService.allInstalled().map(\.modelID))
+        let installedRecords = modelStoreService.allInstalled()
+        installedModelIDs = Set(installedRecords.map(\.modelID))
+        installedModelRecordsByID = Dictionary(uniqueKeysWithValues: installedRecords.map { ($0.modelID, $0) })
+
+        let updates = availableModels.compactMap { descriptor -> String? in
+            guard let installed = installedModelRecordsByID[descriptor.id] else {
+                return nil
+            }
+            return installed.version != descriptor.version ? descriptor.id : nil
+        }
+        updateAvailableModelIDs = Set(updates)
     }
 
     func isModelInstalled(_ modelID: String) -> Bool {
         installedModelIDs.contains(modelID)
+    }
+
+    func isModelUpdateAvailable(_ modelID: String) -> Bool {
+        updateAvailableModelIDs.contains(modelID)
     }
 
     func selectModel(id: String) {
@@ -428,20 +450,23 @@ final class AppModel: ObservableObject {
     }
 
     func modelStatus(for modelID: String) -> String {
-        if settingsStore.settings.selectedModelID == modelID && !settingsStore.settings.useCustomModelPath {
-            return isModelInstalled(modelID) ? "Active" : "Selected (not installed)"
-        }
-
-        if isModelInstalled(modelID) {
-            return "Installed"
-        }
-
         if case .downloading(let progress) = modelDownloadStates[modelID] {
             return "Downloading \(Int(progress * 100))%"
         }
 
         if case .failed = modelDownloadStates[modelID] {
             return "Failed"
+        }
+
+        if settingsStore.settings.selectedModelID == modelID && !settingsStore.settings.useCustomModelPath {
+            if isModelInstalled(modelID) {
+                return isModelUpdateAvailable(modelID) ? "Active • Update available" : "Active"
+            }
+            return "Selected (not installed)"
+        }
+
+        if isModelInstalled(modelID) {
+            return isModelUpdateAvailable(modelID) ? "Installed • Update available" : "Installed"
         }
 
         return "Not installed"
