@@ -431,12 +431,16 @@ final class AppModel: ObservableObject {
     }
 
     func performRuntimeRecoveryAction() {
-        guard runtimeRecoveryActionTitle != nil else {
+        guard let recoveryModelID = runtimeRecoveryTargetModelID else {
             return
         }
 
-        selectModel(id: "base")
-        modelManagerStatusMessage = "Switched to bundled base model."
+        selectModel(id: recoveryModelID)
+        if recoveryModelID == "base" {
+            modelManagerStatusMessage = "Switched to bundled base model."
+        } else {
+            modelManagerStatusMessage = "Switched to installed model: \(recoveryModelID)."
+        }
         reevaluateTranscriptionRuntimeAvailability(notifyIfNeeded: false)
     }
 
@@ -553,16 +557,41 @@ final class AppModel: ObservableObject {
     }
 
     var runtimeRecoveryActionTitle: String? {
-        let settings = settingsStore.settings
-        guard !settings.useCustomModelPath,
-              settings.selectedModelID != "base",
-              !isModelInstalled(settings.selectedModelID),
-              isModelInstalled("base")
-        else {
+        guard let recoveryModelID = runtimeRecoveryTargetModelID else {
             return nil
         }
 
-        return "Use bundled base model"
+        if recoveryModelID == "base" {
+            return "Use bundled base model"
+        }
+
+        return "Use installed model (\(recoveryModelID))"
+    }
+
+    private var runtimeRecoveryTargetModelID: String? {
+        let settings = settingsStore.settings
+        guard !settings.useCustomModelPath else {
+            return nil
+        }
+
+        let selected = settings.selectedModelID
+        guard !isModelInstalled(selected) else {
+            return nil
+        }
+
+        if selected != "base", isModelInstalled("base") {
+            return "base"
+        }
+
+        if let preferredInstalled = availableModels
+            .map(\.id)
+            .first(where: { $0 != selected && isModelInstalled($0) }) {
+            return preferredInstalled
+        }
+
+        return installedModelIDs
+            .sorted()
+            .first(where: { $0 != selected })
     }
 
     func modelStatus(for modelID: String) -> String {
