@@ -39,6 +39,10 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Text(appModel.modelRuntimePreflightDescription)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
                 if appModel.isUsingFallbackCatalog {
                     Label("Using fallback model catalog", systemImage: "exclamationmark.triangle")
                         .font(.caption)

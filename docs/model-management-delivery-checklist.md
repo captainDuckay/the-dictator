@@ -35,6 +35,7 @@
 
 ## Suggested finish sequence
 1. Bundle artifacts and verify startup detects bundled base model.
+   - Optional helper: `scripts/verify-bundled-assets.sh /path/to/the-dictator.app`
 2. Publish first real manifest + one downloadable non-base model.
 3. Run manual QA matrix and fix any regression.
 4. Freeze UI copy and prepare release build.

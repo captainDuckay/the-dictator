@@ -21,6 +21,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var microphonePermissionStatus: String = "Unknown"
     @Published private(set) var accessibilityPermissionStatus: String = "Unknown"
     @Published private(set) var backendCapabilitiesDescription: String = "Unknown"
+    @Published private(set) var modelRuntimePreflightDescription: String = "Checking bundled runtime assets…"
     @Published private(set) var audioInputOptions: [AudioInputOption] = []
     @Published private(set) var selectedAudioInputOptionID: String = "systemDefault"
     @Published private(set) var audioInputStatusDescription: String = "Following System Default input."
@@ -195,6 +196,7 @@ final class AppModel: ObservableObject {
         refreshPermissionStatuses()
         refreshBackendCapabilitiesDescription()
         refreshAudioInputState()
+        updateModelRuntimePreflightDescription()
         registerBundledBaseModelIfAvailable()
         refreshInstalledModels()
         refreshModelCatalog()
@@ -560,6 +562,22 @@ final class AppModel: ObservableObject {
         }
 
         return "Not installed"
+    }
+
+    private func updateModelRuntimePreflightDescription() {
+        let bundledCLI = Bundle.main.resourceURL?
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("whisper-cli", isDirectory: false)
+
+        let cliStatus: String
+        if let bundledCLI, FileManager.default.isExecutableFile(atPath: bundledCLI.path) {
+            cliStatus = "Bundled whisper-cli: ready"
+        } else {
+            cliStatus = "Bundled whisper-cli: missing"
+        }
+
+        let modelStatus = bundledBaseModelURL() == nil ? "Bundled base model: missing" : "Bundled base model: ready"
+        modelRuntimePreflightDescription = "\(cliStatus) • \(modelStatus)"
     }
 
     private func registerBundledBaseModelIfAvailable() {
