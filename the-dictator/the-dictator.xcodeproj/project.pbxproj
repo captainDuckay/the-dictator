@@ -55,6 +55,7 @@
 				48547F3F2F93FEEB000D7B9E /* Sources */,
 				48547F402F93FEEB000D7B9E /* Frameworks */,
 				48547F412F93FEEB000D7B9E /* Resources */,
+				A1B2C3D42EAA000100000001 /* StageBundledWhisperAssets */,
 			);
 			buildRules = (
 			);
@@ -113,6 +114,35 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A1B2C3D42EAA000100000001 /* StageBundledWhisperAssets */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/the-dictator/Resources/bin/whisper-cli",
+				"$(SRCROOT)/the-dictator/Resources/models/base/model.bin",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BUNDLED-WHISPER-CLI.txt",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BUNDLED-BASE-MODEL.txt",
+			);
+			name = StageBundledWhisperAssets;
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/bin/whisper-cli",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/models/base/model.bin",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BUNDLED-WHISPER-CLI.txt",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/BUNDLED-BASE-MODEL.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\n\nAPP_RES=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\nSRC_RES=\"$SRCROOT/the-dictator/Resources\"\n\nmkdir -p \"$APP_RES/bin\"\nmkdir -p \"$APP_RES/models/base\"\n\nif [ -f \"$SRC_RES/bin/whisper-cli\" ]; then\n  cp -f \"$SRC_RES/bin/whisper-cli\" \"$APP_RES/bin/whisper-cli\"\n  chmod +x \"$APP_RES/bin/whisper-cli\"\nfi\n\nif [ -f \"$SRC_RES/models/base/model.bin\" ]; then\n  cp -f \"$SRC_RES/models/base/model.bin\" \"$APP_RES/models/base/model.bin\"\nfi\n\n# Remove placeholder files that are copied by default resource sync.\nrm -f \"$APP_RES/BUNDLED-WHISPER-CLI.txt\"\nrm -f \"$APP_RES/BUNDLED-BASE-MODEL.txt\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		48547F3F2F93FEEB000D7B9E /* Sources */ = {

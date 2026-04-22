@@ -15,6 +15,7 @@
 - Fallback catalog indicator + retry/backoff status
 - Bundled base model registration logic
 - Configurable `ModelManifestURL` via Info.plist key
+- Xcode staging phase creates expected bundle paths (`Contents/Resources/bin` and `Contents/Resources/models/base`) for production artifacts
 
 ### Remaining for ship-ready
 1. Bundle actual production artifacts
