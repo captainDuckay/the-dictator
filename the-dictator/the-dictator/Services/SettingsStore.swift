@@ -38,7 +38,11 @@ struct AppSettings: Codable, Equatable {
     var pushToTalkHotkey: String = "Option + F8"
     var pasteLastTranscriptHotkey: String = "Shift + Option + F8"
     var backendType: String = "whisper.cpp"
+    /// Legacy field kept for migration compatibility.
     var modelPath: String = ""
+    var selectedModelID: String = "base"
+    var useCustomModelPath: Bool = false
+    var customModelPath: String = ""
     var languageAutoDetect: Bool = true
     var preferredLanguage: String = "en"
     var audioCuesEnabled: Bool = false
@@ -51,6 +55,9 @@ struct AppSettings: Codable, Equatable {
         case pasteLastTranscriptHotkey
         case backendType
         case modelPath
+        case selectedModelID
+        case useCustomModelPath
+        case customModelPath
         case languageAutoDetect
         case preferredLanguage
         case audioCuesEnabled
@@ -67,6 +74,9 @@ struct AppSettings: Codable, Equatable {
         pasteLastTranscriptHotkey = try container.decodeIfPresent(String.self, forKey: .pasteLastTranscriptHotkey) ?? "Shift + Option + F8"
         backendType = try container.decodeIfPresent(String.self, forKey: .backendType) ?? "whisper.cpp"
         modelPath = try container.decodeIfPresent(String.self, forKey: .modelPath) ?? ""
+        selectedModelID = try container.decodeIfPresent(String.self, forKey: .selectedModelID) ?? "base"
+        useCustomModelPath = try container.decodeIfPresent(Bool.self, forKey: .useCustomModelPath) ?? false
+        customModelPath = try container.decodeIfPresent(String.self, forKey: .customModelPath) ?? ""
         languageAutoDetect = try container.decodeIfPresent(Bool.self, forKey: .languageAutoDetect) ?? true
         preferredLanguage = try container.decodeIfPresent(String.self, forKey: .preferredLanguage) ?? "en"
         audioCuesEnabled = try container.decodeIfPresent(Bool.self, forKey: .audioCuesEnabled) ?? false
@@ -126,8 +136,20 @@ final class SettingsStore: ObservableObject {
         next.pasteLastTranscriptHotkey = HotkeyParser.parse(pasteCandidate) == nil ? "Shift + Option + F8" : pasteCandidate
 
         next.backendType = normalized(next.backendType, fallback: "whisper.cpp")
+        next.modelPath = normalized(next.modelPath, fallback: "")
+        next.selectedModelID = normalized(next.selectedModelID, fallback: "base")
+        next.customModelPath = normalized(next.customModelPath, fallback: "")
         next.preferredLanguage = normalized(next.preferredLanguage, fallback: "en")
         next.preferredAudioInputName = normalized(next.preferredAudioInputName, fallback: "")
+
+        if !next.modelPath.isEmpty, next.customModelPath.isEmpty, FileManager.default.fileExists(atPath: next.modelPath) {
+            next.useCustomModelPath = true
+            next.customModelPath = next.modelPath
+        }
+
+        if next.useCustomModelPath, next.customModelPath.isEmpty {
+            next.useCustomModelPath = false
+        }
 
         if case .specificDevice(let uid) = next.audioInputPreference {
             let trimmedUID = uid.trimmingCharacters(in: .whitespacesAndNewlines)
