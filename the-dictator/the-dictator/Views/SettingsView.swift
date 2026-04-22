@@ -1,8 +1,10 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject var settingsStore: SettingsStore
     @ObservedObject var appModel: AppModel
+    @State private var isShowingCustomModelImporter = false
 
     var body: some View {
         Form {
@@ -113,6 +115,24 @@ struct SettingsView: View {
                 Toggle("Use custom local model (Advanced)", isOn: binding(\.useCustomModelPath))
                 if settingsStore.settings.useCustomModelPath {
                     TextField("Custom model path", text: binding(\.customModelPath))
+
+                    Button("Choose Custom Model File…") {
+                        isShowingCustomModelImporter = true
+                    }
+                    .fileImporter(
+                        isPresented: $isShowingCustomModelImporter,
+                        allowedContentTypes: [.data],
+                        allowsMultipleSelection: false
+                    ) { result in
+                        guard case .success(let urls) = result, let url = urls.first else {
+                            return
+                        }
+
+                        settingsStore.update { settings in
+                            settings.customModelPath = url.path
+                            settings.useCustomModelPath = true
+                        }
+                    }
                 }
 
                 Toggle("Auto-detect language", isOn: binding(\.languageAutoDetect))

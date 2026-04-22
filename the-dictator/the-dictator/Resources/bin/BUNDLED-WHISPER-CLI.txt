@@ -1,0 +1,3 @@
+Place bundled whisper-cli binary here for release builds.
+Expected runtime path:
+- Contents/Resources/bin/whisper-cli

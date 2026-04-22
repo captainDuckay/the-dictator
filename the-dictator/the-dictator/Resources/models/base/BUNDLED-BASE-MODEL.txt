@@ -1,0 +1,3 @@
+Place bundled base model file here for release builds.
+Expected runtime path candidates include:
+- Contents/Resources/models/base/model.bin
