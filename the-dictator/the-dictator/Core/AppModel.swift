@@ -1,6 +1,14 @@
 import AppKit
 import Combine
+import CoreAudio
 import Foundation
+
+struct AudioInputOption: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let uid: String?
+    let isUnavailable: Bool
+}
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -13,6 +21,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var microphonePermissionStatus: String = "Unknown"
     @Published private(set) var accessibilityPermissionStatus: String = "Unknown"
     @Published private(set) var backendCapabilitiesDescription: String = "Unknown"
+    @Published private(set) var audioInputOptions: [AudioInputOption] = []
+    @Published private(set) var selectedAudioInputOptionID: String = "systemDefault"
+    @Published private(set) var audioInputStatusDescription: String = "Following System Default input."
 
     let settingsStore: SettingsStore
     let sessionStore: SessionStore
@@ -21,6 +32,7 @@ final class AppModel: ObservableObject {
     private let indicatorService: IndicatorService
     private let hotkeyService: HotkeyService?
     private let audioCaptureService: AudioCaptureService
+    private let audioInputDeviceService: AudioInputDeviceService
     private let audioCueService: AudioCueService
     private let transcriptionService: TranscriptionService
     private let textInsertionService: TextInsertionService
@@ -33,6 +45,13 @@ final class AppModel: ObservableObject {
     private var activeTranscriptionTask: Task<Void, Never>?
     private var activeInsertionTask: Task<Void, Never>?
     private var activeSessionID: UUID?
+    private var lastInputRoutingState: InputRoutingState?
+
+    private enum InputRoutingState: Equatable {
+        case systemDefault
+        case preferredAvailable(uid: String)
+        case preferredFallback(uid: String)
+    }
 
     init(
         settingsStore: SettingsStore,
@@ -41,6 +60,7 @@ final class AppModel: ObservableObject {
         indicatorService: IndicatorService,
         hotkeyService: HotkeyService?,
         audioCaptureService: AudioCaptureService,
+        audioInputDeviceService: AudioInputDeviceService,
         audioCueService: AudioCueService,
         transcriptionService: TranscriptionService,
         textInsertionService: TextInsertionService,
@@ -54,6 +74,7 @@ final class AppModel: ObservableObject {
         self.indicatorService = indicatorService
         self.hotkeyService = hotkeyService
         self.audioCaptureService = audioCaptureService
+        self.audioInputDeviceService = audioInputDeviceService
         self.audioCueService = audioCueService
         self.transcriptionService = transcriptionService
         self.textInsertionService = textInsertionService
@@ -69,6 +90,7 @@ final class AppModel: ObservableObject {
         setupEscapeMonitoring()
         refreshPermissionStatuses()
         refreshBackendCapabilitiesDescription()
+        refreshAudioInputState()
     }
 
     convenience init() {
@@ -77,6 +99,7 @@ final class AppModel: ObservableObject {
         let notificationService = NotificationService()
         let indicatorService = IndicatorService()
         let audioCaptureService = AudioCaptureService()
+        let audioInputDeviceService = AudioInputDeviceService()
         let audioCueService = AudioCueService()
         let hotkeyService = try? HotkeyService()
         let transcriptionService = TranscriptionService()
@@ -92,6 +115,7 @@ final class AppModel: ObservableObject {
             indicatorService: indicatorService,
             hotkeyService: hotkeyService,
             audioCaptureService: audioCaptureService,
+            audioInputDeviceService: audioInputDeviceService,
             audioCueService: audioCueService,
             transcriptionService: transcriptionService,
             textInsertionService: textInsertionService,
@@ -171,6 +195,32 @@ final class AppModel: ObservableObject {
         accessibilityPermissionStatus = permissionsService.isAccessibilityPermissionGranted() ? "Allowed" : "Not allowed"
     }
 
+    func refreshAudioInputDevices() {
+        audioInputDeviceService.refreshDevices()
+        refreshAudioInputState()
+    }
+
+    func selectAudioInputOption(id: String) {
+        if id == "systemDefault" {
+            settingsStore.update { settings in
+                settings.audioInputPreference = .systemDefault
+            }
+            refreshAudioInputState()
+            return
+        }
+
+        guard id.hasPrefix("device:") else { return }
+        let uid = String(id.dropFirst("device:".count))
+        let deviceName = audioInputDeviceService.inputDevice(forUID: uid)?.name ?? settingsStore.settings.preferredAudioInputName
+
+        settingsStore.update { settings in
+            settings.audioInputPreference = .specificDevice(uid: uid)
+            settings.preferredAudioInputName = deviceName
+        }
+
+        refreshAudioInputState()
+    }
+
     func pasteLastTranscript() {
         guard let transcript = sessionStore.lastRecoverableTranscript, !transcript.isEmpty else {
             notificationService.show(title: "The Dictator", body: "No recoverable transcript available.")
@@ -226,6 +276,27 @@ final class AppModel: ObservableObject {
                 self?.refreshBackendCapabilitiesDescription()
             }
             .store(in: &cancellables)
+
+        settingsStore.$settings
+            .map { settings in
+                switch settings.audioInputPreference {
+                case .systemDefault:
+                    return "systemDefault|\(settings.preferredAudioInputName)"
+                case .specificDevice(let uid):
+                    return "device:\(uid)|\(settings.preferredAudioInputName)"
+                }
+            }
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                self?.refreshAudioInputState()
+            }
+            .store(in: &cancellables)
+
+        audioInputDeviceService.$devices
+            .sink { [weak self] _ in
+                self?.refreshAudioInputState()
+            }
+            .store(in: &cancellables)
     }
 
     private func registerPushToTalkHotkey() {
@@ -275,15 +346,21 @@ final class AppModel: ObservableObject {
             return
         }
 
+        let captureRoute = resolveCaptureRoute()
+
         do {
-            try audioCaptureService.startCapture()
+            try audioCaptureService.startCapture(deviceID: captureRoute.deviceID)
             recordingStartedAt = Date()
             activeSessionID = UUID()
             handle(.hotkeyDown(permissionsOK: true))
+            updateRouteNotifications(for: captureRoute.routingState)
             audioCueService.playRecordingStarted(enabled: settingsStore.settings.audioCuesEnabled)
         } catch {
             AppLogger.error(AppLogger.app, "Failed to start audio capture: \(error.localizedDescription)")
-            notificationService.show(title: "The Dictator", body: "Failed to start audio recording.")
+            notificationService.show(
+                title: "The Dictator",
+                body: "Couldn’t start recording with current microphone. Try reconnecting or choose another input in Settings."
+            )
             audioCaptureService.discardCapture()
             handle(.cancel)
         }
@@ -425,6 +502,114 @@ final class AppModel: ObservableObject {
                     )
                 }
             }
+        }
+    }
+
+    private func refreshAudioInputState() {
+        let devices = audioInputDeviceService.devices
+        let preference = settingsStore.settings.audioInputPreference
+        let preferredName = settingsStore.settings.preferredAudioInputName
+
+        var options: [AudioInputOption] = []
+
+        if let defaultDevice = devices.first(where: { $0.isSystemDefault }) {
+            options.append(
+                AudioInputOption(
+                    id: "systemDefault",
+                    title: "System Default (\(defaultDevice.name))",
+                    uid: defaultDevice.uid,
+                    isUnavailable: false
+                )
+            )
+        } else {
+            options.append(AudioInputOption(id: "systemDefault", title: "System Default", uid: nil, isUnavailable: false))
+        }
+
+        let nonDefaultDevices = devices.filter { !$0.isSystemDefault }
+        options.append(
+            contentsOf: nonDefaultDevices.map {
+                AudioInputOption(id: "device:\($0.uid)", title: $0.name, uid: $0.uid, isUnavailable: !$0.isAvailable)
+            }
+        )
+
+        if case .specificDevice(let uid) = preference,
+           !options.contains(where: { $0.id == "device:\(uid)" }) {
+            let unavailableName = preferredName.isEmpty ? uid : preferredName
+            options.append(
+                AudioInputOption(
+                    id: "device:\(uid)",
+                    title: "\(unavailableName) (Unavailable)",
+                    uid: uid,
+                    isUnavailable: true
+                )
+            )
+        }
+
+        audioInputOptions = options
+
+        switch preference {
+        case .systemDefault:
+            selectedAudioInputOptionID = "systemDefault"
+            audioInputStatusDescription = "Following System Default input."
+        case .specificDevice(let uid):
+            selectedAudioInputOptionID = "device:\(uid)"
+            if let device = devices.first(where: { $0.uid == uid && $0.isAvailable }) {
+                audioInputStatusDescription = "Using \(device.name)."
+            } else {
+                audioInputStatusDescription = "Currently using System Default until this device reconnects."
+            }
+        }
+    }
+
+    private func resolveCaptureRoute() -> (deviceID: AudioDeviceID?, routingState: InputRoutingState) {
+        let settings = settingsStore.settings
+        let resolution = audioInputDeviceService.resolve(
+            preference: settings.audioInputPreference,
+            preferredName: settings.preferredAudioInputName
+        )
+
+        switch resolution {
+        case .systemDefault(defaultDevice: let defaultDevice):
+            let deviceID = defaultDevice.flatMap { audioInputDeviceService.deviceID(forUID: $0.uid) }
+            AppLogger.info(AppLogger.app, "Audio input route: system default (\(defaultDevice?.name ?? "unknown"))")
+            return (deviceID, .systemDefault)
+
+        case .specificAvailable(device: let device):
+            let deviceID = audioInputDeviceService.deviceID(forUID: device.uid)
+            AppLogger.info(AppLogger.app, "Audio input route: preferred device \(device.name) uid=\(device.uid)")
+            return (deviceID, .preferredAvailable(uid: device.uid))
+
+        case .specificUnavailable(selectedUID: let selectedUID, selectedName: let selectedName, fallbackDevice: let fallbackDevice):
+            let fallbackID = fallbackDevice.flatMap { audioInputDeviceService.deviceID(forUID: $0.uid) }
+            let preferredDisplay = selectedName.isEmpty ? selectedUID : selectedName
+            AppLogger.info(
+                AppLogger.app,
+                "Audio input route fallback: preferred \(preferredDisplay) uid=\(selectedUID) unavailable, using system default \(fallbackDevice?.name ?? "unknown")"
+            )
+            return (fallbackID, .preferredFallback(uid: selectedUID))
+        }
+    }
+
+    private func updateRouteNotifications(for routingState: InputRoutingState) {
+        defer { lastInputRoutingState = routingState }
+
+        switch (lastInputRoutingState, routingState) {
+        case (_, .preferredFallback):
+            if lastInputRoutingState != routingState {
+                notificationService.show(
+                    title: "The Dictator",
+                    body: "Preferred microphone unavailable. Using System Default input."
+                )
+            }
+        case (.preferredFallback(let previousUID), .preferredAvailable(let currentUID)) where previousUID == currentUID:
+            let selectedName = settingsStore.settings.preferredAudioInputName
+            let display = selectedName.isEmpty ? "preferred microphone" : selectedName
+            notificationService.show(
+                title: "The Dictator",
+                body: "Preferred microphone reconnected. Using \(display)."
+            )
+        default:
+            break
         }
     }
 

@@ -1,6 +1,39 @@
 import Combine
 import Foundation
 
+enum AudioInputPreference: Codable, Equatable, Hashable {
+    case systemDefault
+    case specificDevice(uid: String)
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+
+        if rawValue == "systemDefault" {
+            self = .systemDefault
+            return
+        }
+
+        if rawValue.hasPrefix("device:") {
+            let uid = String(rawValue.dropFirst("device:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            self = uid.isEmpty ? .systemDefault : .specificDevice(uid: uid)
+            return
+        }
+
+        self = .systemDefault
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .systemDefault:
+            try container.encode("systemDefault")
+        case .specificDevice(let uid):
+            try container.encode("device:\(uid)")
+        }
+    }
+}
+
 struct AppSettings: Codable, Equatable {
     var pushToTalkHotkey: String = "Option + F8"
     var pasteLastTranscriptHotkey: String = "Shift + Option + F8"
@@ -10,6 +43,37 @@ struct AppSettings: Codable, Equatable {
     var preferredLanguage: String = "en"
     var audioCuesEnabled: Bool = false
     var polishedOutputEnabled: Bool = true
+    var audioInputPreference: AudioInputPreference = .systemDefault
+    var preferredAudioInputName: String = ""
+
+    private enum CodingKeys: String, CodingKey {
+        case pushToTalkHotkey
+        case pasteLastTranscriptHotkey
+        case backendType
+        case modelPath
+        case languageAutoDetect
+        case preferredLanguage
+        case audioCuesEnabled
+        case polishedOutputEnabled
+        case audioInputPreference
+        case preferredAudioInputName
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pushToTalkHotkey = try container.decodeIfPresent(String.self, forKey: .pushToTalkHotkey) ?? "Option + F8"
+        pasteLastTranscriptHotkey = try container.decodeIfPresent(String.self, forKey: .pasteLastTranscriptHotkey) ?? "Shift + Option + F8"
+        backendType = try container.decodeIfPresent(String.self, forKey: .backendType) ?? "whisper.cpp"
+        modelPath = try container.decodeIfPresent(String.self, forKey: .modelPath) ?? ""
+        languageAutoDetect = try container.decodeIfPresent(Bool.self, forKey: .languageAutoDetect) ?? true
+        preferredLanguage = try container.decodeIfPresent(String.self, forKey: .preferredLanguage) ?? "en"
+        audioCuesEnabled = try container.decodeIfPresent(Bool.self, forKey: .audioCuesEnabled) ?? false
+        polishedOutputEnabled = try container.decodeIfPresent(Bool.self, forKey: .polishedOutputEnabled) ?? true
+        audioInputPreference = try container.decodeIfPresent(AudioInputPreference.self, forKey: .audioInputPreference) ?? .systemDefault
+        preferredAudioInputName = try container.decodeIfPresent(String.self, forKey: .preferredAudioInputName) ?? ""
+    }
 }
 
 @MainActor
@@ -63,6 +127,13 @@ final class SettingsStore: ObservableObject {
 
         next.backendType = normalized(next.backendType, fallback: "whisper.cpp")
         next.preferredLanguage = normalized(next.preferredLanguage, fallback: "en")
+        next.preferredAudioInputName = normalized(next.preferredAudioInputName, fallback: "")
+
+        if case .specificDevice(let uid) = next.audioInputPreference {
+            let trimmedUID = uid.trimmingCharacters(in: .whitespacesAndNewlines)
+            next.audioInputPreference = trimmedUID.isEmpty ? .systemDefault : .specificDevice(uid: trimmedUID)
+        }
+
         return next
     }
 

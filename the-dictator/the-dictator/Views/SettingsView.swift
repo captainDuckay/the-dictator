@@ -45,6 +45,20 @@ struct SettingsView: View {
 
             Section("Audio") {
                 Toggle("Audio cues", isOn: binding(\.audioCuesEnabled))
+
+                Picker("Input microphone", selection: audioInputSelectionBinding) {
+                    ForEach(appModel.audioInputOptions) { option in
+                        Text(option.title).tag(option.id)
+                    }
+                }
+
+                Text(appModel.audioInputStatusDescription)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Button("Refresh Audio Inputs") {
+                    appModel.refreshAudioInputDevices()
+                }
             }
 
             Section("Permissions") {
@@ -68,6 +82,14 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .padding()
         .frame(width: 480)
+    }
+
+    private var audioInputSelectionBinding: Binding<String> {
+        Binding {
+            appModel.selectedAudioInputOptionID
+        } set: { newValue in
+            appModel.selectAudioInputOption(id: newValue)
+        }
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {

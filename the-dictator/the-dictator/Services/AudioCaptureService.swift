@@ -1,4 +1,6 @@
+import AudioToolbox
 import AVFoundation
+import CoreAudio
 import Foundation
 
 enum AudioCaptureError: LocalizedError {
@@ -6,6 +8,8 @@ enum AudioCaptureError: LocalizedError {
     case notCapturing
     case noAudioCaptured
     case fileWriteFailed
+    case failedToSelectInputDevice(status: OSStatus)
+    case audioUnitUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -17,27 +21,40 @@ enum AudioCaptureError: LocalizedError {
             return "No audio captured."
         case .fileWriteFailed:
             return "Failed to write captured audio."
+        case .failedToSelectInputDevice(let status):
+            return "Failed to select microphone device (status: \(status))."
+        case .audioUnitUnavailable:
+            return "Failed to access audio input unit."
         }
     }
 }
 
 @MainActor
 final class AudioCaptureService {
-    private let audioEngine = AVAudioEngine()
     private let writeQueue = DispatchQueue(label: "the-dictator.audio-write")
 
+    private var audioEngine: AVAudioEngine?
+    private var activeInputNode: AVAudioInputNode?
     private var currentFile: AVAudioFile?
     private var currentCaptureURL: URL?
     private var capturedFrames: AVAudioFramePosition = 0
 
     private(set) var isCapturing = false
 
-    func startCapture() throws {
+    func startCapture(deviceID: AudioDeviceID?) throws {
         guard !isCapturing else {
             throw AudioCaptureError.alreadyCapturing
         }
 
-        let inputNode = audioEngine.inputNode
+        cleanupAudioGraph()
+
+        let engine = AVAudioEngine()
+        let inputNode = engine.inputNode
+
+        if let deviceID {
+            try setInputDevice(deviceID, on: inputNode)
+        }
+
         let inputFormat = inputNode.outputFormat(forBus: 0)
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("dictation-\(UUID().uuidString)")
@@ -69,11 +86,15 @@ final class AudioCaptureService {
         }
 
         do {
-            audioEngine.prepare()
-            try audioEngine.start()
+            engine.prepare()
+            try engine.start()
+            audioEngine = engine
+            activeInputNode = inputNode
             isCapturing = true
+            AppLogger.info(AppLogger.app, "Audio capture started. sampleRate=\(Int(inputFormat.sampleRate))Hz channels=\(inputFormat.channelCount)")
         } catch {
             inputNode.removeTap(onBus: 0)
+            engine.stop()
             cleanupCurrentCaptureFile()
             throw error
         }
@@ -84,8 +105,8 @@ final class AudioCaptureService {
             throw AudioCaptureError.notCapturing
         }
 
-        audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
+        activeInputNode?.removeTap(onBus: 0)
+        audioEngine?.stop()
         isCapturing = false
 
         writeQueue.sync {}
@@ -98,6 +119,7 @@ final class AudioCaptureService {
             currentFile = nil
             currentCaptureURL = nil
             capturedFrames = 0
+            cleanupAudioGraph()
         }
 
         guard capturedFrames > 0 else {
@@ -110,13 +132,39 @@ final class AudioCaptureService {
 
     func discardCapture() {
         if isCapturing {
-            audioEngine.inputNode.removeTap(onBus: 0)
-            audioEngine.stop()
+            activeInputNode?.removeTap(onBus: 0)
+            audioEngine?.stop()
             isCapturing = false
         }
 
         cleanupCurrentCaptureFile()
+        cleanupAudioGraph()
         capturedFrames = 0
+    }
+
+    private func setInputDevice(_ deviceID: AudioDeviceID, on inputNode: AVAudioInputNode) throws {
+        guard let audioUnit = inputNode.audioUnit else {
+            throw AudioCaptureError.audioUnitUnavailable
+        }
+
+        var mutableDeviceID = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &mutableDeviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+
+        guard status == noErr else {
+            throw AudioCaptureError.failedToSelectInputDevice(status: status)
+        }
+    }
+
+    private func cleanupAudioGraph() {
+        activeInputNode = nil
+        audioEngine = nil
     }
 
     private func cleanupCurrentCaptureFile() {
