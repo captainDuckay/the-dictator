@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "base",
+      "level": "base",
+      "displayName": "Balanced",
+      "technicalName": "base",
+      "diskBytes": 147951465,
+      "estimatedRamBytes": 500000000,
+      "downloadURL": null,
+      "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+      "version": "2026.04.22",
+      "bundled": true,
+      "minAppVersion": "1.0.0",
+      "maxAppVersion": null
+    },
+    {
+      "id": "small",
+      "level": "small",
+      "displayName": "Higher Accuracy",
+      "technicalName": "small",
+      "diskBytes": 488000000,
+      "estimatedRamBytes": 1300000000,
+      "downloadURL": "https://github.com/captainDuckay/the-dictator-models/releases/download/v1/ggml-small.bin",
+      "sha256": "REPLACE_WITH_REAL_SHA256",
+      "version": "2026.04.22",
+      "bundled": false,
+      "minAppVersion": "1.0.0",
+      "maxAppVersion": null
+    }
+  ]
+}
