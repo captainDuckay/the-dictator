@@ -31,6 +31,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var modelManagerStatusMessage: String?
     @Published private(set) var modelCatalogLastRefreshedAt: Date?
     @Published private(set) var modelCatalogNextRetryAt: Date?
+    @Published private(set) var isRefreshingModelCatalog: Bool = false
 
     private var isUsingFallbackModelCatalog: Bool = false
     private var modelCatalogConsecutiveFailures: Int = 0
@@ -361,8 +362,12 @@ final class AppModel: ObservableObject {
             return
         }
 
+        isRefreshingModelCatalog = true
         activeModelCatalogRefreshTask = Task { @MainActor in
-            defer { activeModelCatalogRefreshTask = nil }
+            defer {
+                activeModelCatalogRefreshTask = nil
+                isRefreshingModelCatalog = false
+            }
 
             do {
                 let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"

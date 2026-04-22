@@ -108,8 +108,16 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Button("Refresh Model Catalog") {
-                    appModel.refreshModelCatalog(force: true)
+                HStack {
+                    Button("Refresh Model Catalog") {
+                        appModel.refreshModelCatalog(force: true)
+                    }
+                    .disabled(appModel.isRefreshingModelCatalog)
+
+                    if appModel.isRefreshingModelCatalog {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
                 }
 
                 Toggle("Use custom local model (Advanced)", isOn: binding(\.useCustomModelPath))
