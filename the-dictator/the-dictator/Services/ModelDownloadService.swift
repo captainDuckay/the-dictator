@@ -105,8 +105,15 @@ final class ModelDownloadService: NSObject, URLSessionDownloadDelegate {
                 return
             }
 
-            self.updateState(modelID: pending.modelID, state: .completed(tempFilePath: location.path))
-            pending.continuation.resume(returning: location)
+            do {
+                let stableURL = try self.persistDownloadedFile(at: location, modelID: pending.modelID)
+                self.updateState(modelID: pending.modelID, state: .completed(tempFilePath: stableURL.path))
+                pending.continuation.resume(returning: stableURL)
+            } catch {
+                self.updateState(modelID: pending.modelID, state: .failed(message: error.localizedDescription))
+                pending.continuation.resume(throwing: ModelDownloadError.failed(error.localizedDescription))
+            }
+
             self.clearTracking(taskID: downloadTask.taskIdentifier, modelID: pending.modelID)
         }
     }
@@ -138,6 +145,20 @@ final class ModelDownloadService: NSObject, URLSessionDownloadDelegate {
         pendingByTaskID[taskID] = nil
         taskToModelID[taskID] = nil
         modelTasks[modelID] = nil
+    }
+
+    private func persistDownloadedFile(at location: URL, modelID: String) throws -> URL {
+        let fileManager = FileManager.default
+        let baseDirectory = fileManager.temporaryDirectory.appendingPathComponent("the-dictator-model-downloads", isDirectory: true)
+        try fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+
+        let destinationURL = baseDirectory.appendingPathComponent("\(modelID)-\(UUID().uuidString).bin", isDirectory: false)
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.removeItem(at: destinationURL)
+        }
+
+        try fileManager.moveItem(at: location, to: destinationURL)
+        return destinationURL
     }
 
     private func updateState(modelID: String, state: ModelDownloadState) {

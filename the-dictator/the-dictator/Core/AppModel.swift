@@ -476,8 +476,11 @@ final class AppModel: ObservableObject {
                     return
                 }
 
-                modelDownloadStates[id] = .failed(message: error.localizedDescription)
-                modelManagerStatusMessage = "Failed to install \(descriptor.displayName): \(error.localizedDescription)"
+                let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                let visibleMessage = message.isEmpty ? "Unknown error" : message
+                modelDownloadStates[id] = .failed(message: visibleMessage)
+                modelManagerStatusMessage = "Failed to install \(descriptor.displayName): \(visibleMessage)"
+                AppLogger.error(AppLogger.settings, "Model install failed for \(descriptor.id): \(visibleMessage)")
             }
         }
     }
