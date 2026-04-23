@@ -100,16 +100,30 @@ final class ModelDownloadService: NSObject, URLSessionDownloadDelegate {
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        stateQueue.async {
-            guard let pending = self.pendingByTaskID[downloadTask.taskIdentifier] else {
-                return
-            }
+        let pending: PendingDownload? = stateQueue.sync {
+            pendingByTaskID[downloadTask.taskIdentifier]
+        }
 
-            do {
-                let stableURL = try self.persistDownloadedFile(at: location, modelID: pending.modelID)
+        guard let pending else {
+            return
+        }
+
+        let result: Result<URL, Error>
+        do {
+            // Must persist immediately in this callback. The URLSession-provided
+            // temporary file may be removed as soon as this delegate method returns.
+            let stableURL = try persistDownloadedFile(at: location, modelID: pending.modelID)
+            result = .success(stableURL)
+        } catch {
+            result = .failure(error)
+        }
+
+        stateQueue.async {
+            switch result {
+            case .success(let stableURL):
                 self.updateState(modelID: pending.modelID, state: .completed(tempFilePath: stableURL.path))
                 pending.continuation.resume(returning: stableURL)
-            } catch {
+            case .failure(let error):
                 self.updateState(modelID: pending.modelID, state: .failed(message: error.localizedDescription))
                 pending.continuation.resume(throwing: ModelDownloadError.failed(error.localizedDescription))
             }
