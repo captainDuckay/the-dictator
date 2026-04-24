@@ -66,6 +66,7 @@ final class AppModel: ObservableObject {
     private var activeInsertionTask: Task<Void, Never>?
     private var activeSessionID: UUID?
     private var lastInputRoutingState: InputRoutingState?
+    private var visibleSettingsWindowCount: Int = 0
 
     private enum InputRoutingState: Equatable {
         case systemDefault
@@ -261,6 +262,51 @@ final class AppModel: ObservableObject {
             return "square.and.arrow.down"
         case .error:
             return "exclamationmark.triangle"
+        }
+    }
+
+    func prepareForSettingsPresentation() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func settingsWindowDidAppear() {
+        visibleSettingsWindowCount += 1
+        NSApp.setActivationPolicy(.regular)
+    }
+
+    func settingsWindowDidDisappear() {
+        visibleSettingsWindowCount = max(0, visibleSettingsWindowCount - 1)
+
+        DispatchQueue.main.async { [weak self] in
+            self?.updateActivationPolicyForVisibleWindows()
+        }
+    }
+
+    private func updateActivationPolicyForVisibleWindows() {
+        guard visibleSettingsWindowCount == 0 else {
+            return
+        }
+
+        if hasVisibleAppWindows() {
+            NSApp.setActivationPolicy(.regular)
+        } else {
+            NSApp.setActivationPolicy(.accessory)
+        }
+    }
+
+    private func hasVisibleAppWindows() -> Bool {
+        NSApp.windows.contains { window in
+            guard window.isVisible, !window.isMiniaturized else {
+                return false
+            }
+
+            let className = NSStringFromClass(type(of: window))
+            if className.contains("NSStatusBarWindow") || className.contains("NSMenuWindow") {
+                return false
+            }
+
+            return window.styleMask.contains(.titled) || window.canBecomeMain || window.canBecomeKey
         }
     }
 
