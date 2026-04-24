@@ -5,30 +5,19 @@
 - [Audio input routing manual test plan](docs/audio-input-routing-manual-test-plan.md)
 - [v1 release runbook](docs/release-runbook-v1.md)
 - [release notes template](docs/release-notes-template.md)
+- [unsigned macOS install guide](docs/install-macos-unsigned.md)
 
 ## Release (v1)
 
-Prereqs:
-- `create-dmg` installed (`brew install create-dmg`)
-- Developer ID Application certificate in Keychain
-- notarytool keychain profile configured (example: `AC_NOTARY`)
-- `vX.Y.Z` tag exists on `HEAD`
+Canonical release path is GitHub Actions on **GitHub Release published** (stable releases only).
 
-Build + sign + notarize DMG:
-
-```bash
-scripts/release-dmg.sh \
-  --version 1.0.0 \
-  --identity "Developer ID Application: YOUR NAME (TEAMID)" \
-  --notary-profile AC_NOTARY
-```
-
-Create draft GitHub release (after manual DMG install smoke test):
-
-```bash
-scripts/release-publish-draft.sh --version 1.0.0
-```
-
-Artifacts are written to `out/release/`:
+Workflow output artifacts:
 - `the-dictator-<version>-arm64.dmg`
+- `the-dictator-<version>-arm64.zip`
 - `the-dictator-<version>-arm64.sha256`
+
+Optional local build verification:
+
+```bash
+scripts/build-unsigned-release-artifacts.sh --version 1.0.0
+```
