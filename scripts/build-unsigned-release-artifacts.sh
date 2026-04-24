@@ -74,7 +74,7 @@ if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   exit 1
 fi
 
-for cmd in xcodebuild create-dmg shasum ditto lipo; do
+for cmd in xcodebuild create-dmg shasum ditto lipo codesign; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "❌ Required command not found: $cmd"
     exit 1
@@ -102,9 +102,10 @@ if [[ ! -f "$PROJECT" ]]; then
   fi
 fi
 
+APP_NAME="The Dictator"
 BUILD_DIR="$OUTPUT_DIR/build"
 APP_BUILD_DIR="$BUILD_DIR/Build/Products/Release"
-APP_PATH="$APP_BUILD_DIR/the-dictator.app"
+APP_PATH="$APP_BUILD_DIR/${APP_NAME}.app"
 DMG_SRC_DIR="$OUTPUT_DIR/dmg-src"
 DMG_PATH="$OUTPUT_DIR/the-dictator-${VERSION}-${ARCH}.dmg"
 ZIP_PATH="$OUTPUT_DIR/the-dictator-${VERSION}-${ARCH}.zip"
@@ -138,6 +139,11 @@ fi
 
 echo "✅ App binary architecture: $ARCHS"
 
+echo "==> Applying ad-hoc signature (non-notarized)"
+codesign --force --sign - --timestamp=none --deep "$APP_PATH"
+codesign --verify --deep --strict "$APP_PATH"
+echo "✅ Ad-hoc signature verified"
+
 echo "==> Running release bundle preflight"
 if [[ -n "$MANIFEST_URL" ]]; then
   scripts/release-preflight.sh "$APP_PATH" "$MANIFEST_URL"
@@ -149,10 +155,10 @@ cp -R "$APP_PATH" "$DMG_SRC_DIR/"
 
 echo "==> Creating DMG"
 create-dmg \
-  --volname "the-dictator" \
+  --volname "$APP_NAME" \
   --window-size 600 400 \
   --icon-size 100 \
-  --icon "the-dictator.app" 175 190 \
+  --icon "${APP_NAME}.app" 175 190 \
   --app-drop-link 425 190 \
   "$DMG_PATH" \
   "$DMG_SRC_DIR"

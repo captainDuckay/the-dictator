@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_PATH="${1:-}"
 if [[ -z "$APP_PATH" ]]; then
-  echo "Usage: $0 /path/to/the-dictator.app"
+  echo "Usage: $0 /path/to/The\ Dictator.app"
   exit 1
 fi
 

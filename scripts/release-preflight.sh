@@ -5,7 +5,7 @@ APP_PATH="${1:-}"
 MANIFEST_OVERRIDE="${2:-}"
 
 if [[ -z "$APP_PATH" ]]; then
-  echo "Usage: $0 /path/to/the-dictator.app [manifest-url-override]"
+  echo "Usage: $0 /path/to/The\ Dictator.app [manifest-url-override]"
   exit 1
 fi
 
@@ -34,6 +34,12 @@ check_fail() {
 }
 
 echo "Release preflight for: $APP_PATH"
+
+if codesign --verify --deep --strict "$APP_PATH" >/dev/null 2>&1; then
+  check_ok "Code signature verifies."
+else
+  check_fail "Code signature verification failed."
+fi
 
 if [[ -f "$PLACEHOLDER_CLI" || -f "$PLACEHOLDER_MODEL" ]]; then
   check_fail "Placeholder marker files are still present in bundle resources."
