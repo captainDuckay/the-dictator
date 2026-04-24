@@ -221,6 +221,12 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .padding()
         .frame(width: 480)
+        .onAppear {
+            appModel.settingsWindowDidAppear()
+        }
+        .onDisappear {
+            appModel.settingsWindowDidDisappear()
+        }
     }
 
     private var audioInputSelectionBinding: Binding<String> {

@@ -8,7 +8,7 @@ struct MenuBarMenuView: View {
     var body: some View {
         Group {
             Button("Settings…") {
-                NSApplication.shared.activate(ignoringOtherApps: true)
+                appModel.prepareForSettingsPresentation()
                 openSettings()
             }
 
