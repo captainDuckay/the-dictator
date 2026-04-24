@@ -82,8 +82,18 @@ for cmd in xcodebuild create-dmg shasum ditto lipo; do
 done
 
 if [[ ! -f "$PROJECT" ]]; then
-  echo "❌ Project not found: $PROJECT"
-  exit 1
+  mapfile -t detected_projects < <(find . -maxdepth 4 -type d -name "*.xcodeproj" | sort)
+  if [[ "${#detected_projects[@]}" -eq 1 ]]; then
+    PROJECT="${detected_projects[0]#./}"
+    echo "⚠️ Provided project path not found; auto-detected project: $PROJECT"
+  else
+    echo "❌ Project not found: $PROJECT"
+    if [[ "${#detected_projects[@]}" -gt 1 ]]; then
+      echo "   Multiple .xcodeproj files detected. Pass --project explicitly."
+      printf '   - %s\n' "${detected_projects[@]}"
+    fi
+    exit 1
+  fi
 fi
 
 BUILD_DIR="$OUTPUT_DIR/build"
