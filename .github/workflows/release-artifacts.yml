@@ -27,6 +27,11 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Fetch bundled base model
+        run: |
+          chmod +x scripts/fetch-bundled-base-model.sh
+          scripts/fetch-bundled-base-model.sh
+
       - name: Build unsigned artifacts
         run: |
           chmod +x scripts/build-unsigned-release-artifacts.sh scripts/release-preflight.sh
