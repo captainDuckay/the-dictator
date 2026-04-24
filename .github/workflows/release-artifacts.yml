@@ -56,6 +56,55 @@ jobs:
             "out/release/the-dictator-${VERSION}-arm64.sha256" \
             --clobber
 
+      - name: Bootstrap release notes from template when body is empty
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          release_id = str(event["release"]["id"])
+
+          current = subprocess.check_output(
+              [
+                  "gh",
+                  "api",
+                  f"/repos/{os.environ['GITHUB_REPOSITORY']}/releases/{release_id}",
+                  "--jq",
+                  ".body // \"\"",
+              ],
+              text=True,
+          )
+
+          if current.strip():
+              print("Release body already present; skipping template bootstrap")
+              raise SystemExit(0)
+
+          template_path = Path("docs/release-notes-template.md")
+          template = template_path.read_text(encoding="utf-8")
+          body = template.replace("{{VERSION}}", os.environ["VERSION"]).rstrip() + "\n"
+
+          subprocess.run(
+              [
+                  "gh",
+                  "api",
+                  "-X",
+                  "PATCH",
+                  f"/repos/{os.environ['GITHUB_REPOSITORY']}/releases/{release_id}",
+                  "-f",
+                  f"body={body}",
+              ],
+              check=True,
+          )
+
+          print("Release body bootstrapped from docs/release-notes-template.md")
+          PY
+
       - name: Enforce unsigned install warning in release body
         env:
           GH_TOKEN: ${{ github.token }}
@@ -67,9 +116,18 @@ jobs:
           from pathlib import Path
 
           event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
-          release = event["release"]
-          release_id = str(release["id"])
-          body = release.get("body") or ""
+          release_id = str(event["release"]["id"])
+
+          body = subprocess.check_output(
+              [
+                  "gh",
+                  "api",
+                  f"/repos/{os.environ['GITHUB_REPOSITORY']}/releases/{release_id}",
+                  "--jq",
+                  ".body // \"\"",
+              ],
+              text=True,
+          )
 
           marker_start = "<!-- unsigned-macos-warning:start -->"
           marker_end = "<!-- unsigned-macos-warning:end -->"
@@ -108,4 +166,50 @@ jobs:
           )
 
           print("Unsigned warning block appended to release body")
+          PY
+
+      - name: Validate release notes required sections (release guard)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+          release_id = str(event["release"]["id"])
+
+          body = subprocess.check_output(
+              [
+                  "gh",
+                  "api",
+                  f"/repos/{os.environ['GITHUB_REPOSITORY']}/releases/{release_id}",
+                  "--jq",
+                  ".body // \"\"",
+              ],
+              text=True,
+          )
+
+          required_sections = [
+              "## Highlights",
+              "## Fixes",
+              "## Known issues",
+              "## Install",
+              "## Permissions",
+              "<!-- unsigned-macos-warning:start -->",
+              "<!-- unsigned-macos-warning:end -->",
+          ]
+
+          missing = [section for section in required_sections if section not in body]
+          if missing:
+              raise SystemExit(
+                  "Missing required release notes sections/markers: " + ", ".join(missing)
+              )
+
+          if "{{VERSION}}" in body:
+              raise SystemExit("Release body still contains '{{VERSION}}' placeholder")
+
+          print("Release notes guard passed")
           PY

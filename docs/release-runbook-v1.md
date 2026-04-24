@@ -28,6 +28,13 @@ Before upload, CI must pass a release guard that verifies:
 - `codesign --verify --deep --strict "out/release/build/Build/Products/Release/The Dictator.app"`
 - signature is ad-hoc (`Signature=adhoc`)
 
+## Release notes policy (template + guards)
+
+The release workflow enforces two release-notes behaviors:
+
+1. **Template bootstrap**: if release body is empty, CI fills it from `docs/release-notes-template.md` and substitutes `{{VERSION}}`.
+2. **Required-section guard**: CI fails if release notes are missing required sections/markers (`Highlights`, `Fixes`, `Known issues`, `Install`, `Permissions`, unsigned-warning markers).
+
 ## Required user-warning policy
 
 Each public release must include unsigned macOS warning guidance.
