@@ -8,6 +8,7 @@ Date: 2026-04-24
 - **No Apple Developer Program enrollment**
 - No Developer ID signing
 - No notarization
+- CI applies **ad-hoc code signing** to the app bundle before packaging (required release guard)
 - Users may hit Gatekeeper warnings; install instructions are mandatory
 
 ## Canonical release path
@@ -22,6 +23,10 @@ Workflow builds and uploads:
 - `the-dictator-<version>-arm64.dmg`
 - `the-dictator-<version>-arm64.zip`
 - `the-dictator-<version>-arm64.sha256`
+
+Before upload, CI must pass a release guard that verifies:
+- `codesign --verify --deep --strict "out/release/build/Build/Products/Release/The Dictator.app"`
+- signature is ad-hoc (`Signature=adhoc`)
 
 ## Required user-warning policy
 

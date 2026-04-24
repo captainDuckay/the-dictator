@@ -37,6 +37,13 @@ jobs:
           chmod +x scripts/build-unsigned-release-artifacts.sh scripts/release-preflight.sh
           scripts/build-unsigned-release-artifacts.sh --version "${{ steps.meta.outputs.version }}"
 
+      - name: Verify ad-hoc code signature (release guard)
+        run: |
+          APP_PATH="out/release/build/Build/Products/Release/The Dictator.app"
+          test -d "$APP_PATH"
+          codesign --verify --deep --strict "$APP_PATH"
+          codesign -dv "$APP_PATH" 2>&1 | grep -q "Signature=adhoc"
+
       - name: Upload artifacts to release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -74,7 +81,7 @@ jobs:
               "",
               "If blocked on launch:",
               "1. Move app to `/Applications`",
-              "2. Right-click `the-dictator.app` → **Open**",
+              "2. Right-click `The Dictator.app` → **Open**",
               "3. If needed: **System Settings → Privacy & Security → Open Anyway**",
               "",
               "Full install guide: `docs/install-macos-unsigned.md`",

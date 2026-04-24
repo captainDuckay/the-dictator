@@ -301,7 +301,10 @@
 				);
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "captainDuckay.the-dictator";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "The Dictator";
+				EXECUTABLE_NAME = "the-dictator";
+				INFOPLIST_KEY_CFBundleDisplayName = "The Dictator";
+				INFOPLIST_KEY_CFBundleName = "The Dictator";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -338,7 +341,10 @@
 				);
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "captainDuckay.the-dictator";
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "The Dictator";
+				EXECUTABLE_NAME = "the-dictator";
+				INFOPLIST_KEY_CFBundleDisplayName = "The Dictator";
+				INFOPLIST_KEY_CFBundleName = "The Dictator";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

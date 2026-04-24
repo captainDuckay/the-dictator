@@ -37,8 +37,8 @@
 ## Suggested finish sequence
 1. Bundle artifacts and verify startup detects bundled base model.
    - Fetch base model locally: `scripts/fetch-bundled-base-model.sh`
-   - Optional helper: `scripts/verify-bundled-assets.sh /path/to/the-dictator.app`
-   - Ship preflight: `scripts/release-preflight.sh /path/to/the-dictator.app`
+   - Optional helper: `scripts/verify-bundled-assets.sh /path/to/The\ Dictator.app`
+   - Ship preflight: `scripts/release-preflight.sh /path/to/The\ Dictator.app`
 2. Publish first real manifest + one downloadable non-base model.
 3. Re-run release preflight, then run manual QA matrix and fix any regression.
 4. Freeze UI copy and prepare release build.
