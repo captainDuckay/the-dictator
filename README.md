@@ -1,5 +1,11 @@
 # the-dictator
 
+<p align="center">
+  <img src="docs/assets/the-dictator-desktop-artwork.svg" alt="The Dictator artwork" width="720" />
+</p>
+
+A fast, local-first macOS dictation utility focused on reliable push-to-talk transcription.
+
 ## Documentation
 
 - [Audio input routing manual test plan](docs/audio-input-routing-manual-test-plan.md)
