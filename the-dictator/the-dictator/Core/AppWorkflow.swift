@@ -122,7 +122,7 @@ final class DictationWorkflow: ObservableObject {
 
     var onOutcome: ((DictationWorkflowOutcome) -> Void)?
 
-    private let settingsStore: SettingsStore
+    private let settingsProvider: DictationSettingsProviding
     private let sessionStore: SessionStore
     private let audioCaptureService: AudioCaptureService
     private let audioInputDeviceService: AudioInputDeviceService
@@ -131,7 +131,7 @@ final class DictationWorkflow: ObservableObject {
     private let textInsertionService: TextInsertionService
     private let permissionsService: PermissionsService
     private let latencyTracker: LatencyTracker
-    private let modelStoreService: ModelStoreService
+    private let runtimeReadinessProvider: DictationRuntimeReadinessProviding
     private let notificationService: NotificationService
 
     private var recordingStartedAt: Date?
@@ -148,7 +148,7 @@ final class DictationWorkflow: ObservableObject {
     }
 
     init(
-        settingsStore: SettingsStore,
+        settingsProvider: DictationSettingsProviding,
         sessionStore: SessionStore,
         audioCaptureService: AudioCaptureService,
         audioInputDeviceService: AudioInputDeviceService,
@@ -157,10 +157,10 @@ final class DictationWorkflow: ObservableObject {
         textInsertionService: TextInsertionService,
         permissionsService: PermissionsService,
         latencyTracker: LatencyTracker,
-        modelStoreService: ModelStoreService,
+        runtimeReadinessProvider: DictationRuntimeReadinessProviding,
         notificationService: NotificationService
     ) {
-        self.settingsStore = settingsStore
+        self.settingsProvider = settingsProvider
         self.sessionStore = sessionStore
         self.audioCaptureService = audioCaptureService
         self.audioInputDeviceService = audioInputDeviceService
@@ -169,7 +169,7 @@ final class DictationWorkflow: ObservableObject {
         self.textInsertionService = textInsertionService
         self.permissionsService = permissionsService
         self.latencyTracker = latencyTracker
-        self.modelStoreService = modelStoreService
+        self.runtimeReadinessProvider = runtimeReadinessProvider
         self.notificationService = notificationService
     }
 
@@ -178,25 +178,10 @@ final class DictationWorkflow: ObservableObject {
     }
 
     func refreshRuntimeReadiness(notifyIfNeeded: Bool = true) {
-        updateModelRuntimePreflightDescription()
+        snapshot.modelRuntimePreflightDescription = runtimeReadinessProvider.modelRuntimePreflightDescription()
 
-        let settings = settingsStore.settings
-
-        let issue: String?
-        if !hasUsableWhisperExecutable() {
-            issue = "Transcription engine is unavailable. Reinstall the app or add whisper-cli to PATH."
-        } else if settings.useCustomModelPath {
-            if settings.customModelPath.isEmpty || !FileManager.default.fileExists(atPath: settings.customModelPath) {
-                issue = "Custom model file is unavailable. Choose a valid model file in Settings → Transcription."
-            } else {
-                issue = nil
-            }
-        } else if modelStoreService.localPath(for: settings.selectedModelID) == nil {
-            issue = "Selected model \(settings.selectedModelID) is not installed. Open Settings → Transcription and download it in Model Manager."
-        } else {
-            issue = nil
-        }
-
+        let settings = settingsProvider.currentSettings
+        let issue = runtimeReadinessProvider.runtimeIssue(for: settings)
         snapshot.runtimeIssue = issue
 
         guard notifyIfNeeded else {
@@ -238,7 +223,7 @@ final class DictationWorkflow: ObservableObject {
             activeSessionID = UUID()
             apply(.hotkeyDown(permissionsOK: true))
             updateRouteNotifications(for: captureRoute.routingState)
-            audioCueService.playRecordingStarted(enabled: settingsStore.settings.audioCuesEnabled)
+            audioCueService.playRecordingStarted(enabled: settingsProvider.currentSettings.audioCuesEnabled)
         } catch {
             AppLogger.error(AppLogger.app, "Failed to start audio capture: \(error.localizedDescription)")
             onOutcome?(.notification("Couldn’t start recording with current microphone. Try reconnecting or choose another input in Settings."))
@@ -254,7 +239,7 @@ final class DictationWorkflow: ObservableObject {
 
         let durationMS = Int((Date().timeIntervalSince(recordingStartedAt ?? Date())) * 1_000)
         recordingStartedAt = nil
-        audioCueService.playRecordingStopped(enabled: settingsStore.settings.audioCuesEnabled)
+        audioCueService.playRecordingStopped(enabled: settingsProvider.currentSettings.audioCuesEnabled)
 
         if durationMS < AppStateMachine.minimumHoldDurationMS {
             audioCaptureService.discardCapture()
@@ -316,7 +301,7 @@ final class DictationWorkflow: ObservableObject {
 
         activeTranscriptionTask?.cancel()
 
-        let settings = settingsStore.settings
+        let settings = settingsProvider.currentSettings
 
         activeTranscriptionTask = Task { [weak self] in
             guard let self else { return }
@@ -421,7 +406,7 @@ final class DictationWorkflow: ObservableObject {
     }
 
     private func resolveCaptureRoute() -> (deviceID: AudioDeviceID?, routingState: InputRoutingState) {
-        let settings = settingsStore.settings
+        let settings = settingsProvider.currentSettings
         let resolution = audioInputDeviceService.resolve(
             preference: settings.audioInputPreference,
             preferredName: settings.preferredAudioInputName
@@ -458,7 +443,7 @@ final class DictationWorkflow: ObservableObject {
                 onOutcome?(.notification("Preferred microphone unavailable. Using System Default input."))
             }
         case (.preferredFallback(let previousUID), .preferredAvailable(let currentUID)) where previousUID == currentUID:
-            let selectedName = settingsStore.settings.preferredAudioInputName
+            let selectedName = settingsProvider.currentSettings.preferredAudioInputName
             let display = selectedName.isEmpty ? "preferred microphone" : selectedName
             onOutcome?(.notification("Preferred microphone reconnected. Using \(display)."))
         default:
@@ -481,65 +466,6 @@ final class DictationWorkflow: ObservableObject {
             latencyTracker.clear(sessionID: sessionID)
         }
         activeSessionID = nil
-    }
-
-    private func updateModelRuntimePreflightDescription() {
-        let bundledCLI = Bundle.main.resourceURL?
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("whisper-cli", isDirectory: false)
-
-        let cliStatus: String
-        if let bundledCLI, FileManager.default.isExecutableFile(atPath: bundledCLI.path) {
-            cliStatus = "Bundled whisper-cli: ready"
-        } else {
-            cliStatus = "Bundled whisper-cli: missing"
-        }
-
-        let modelStatus = bundledBaseModelURL() == nil ? "Bundled base model: missing" : "Bundled base model: ready"
-        snapshot.modelRuntimePreflightDescription = "\(cliStatus) • \(modelStatus)"
-    }
-
-    private func bundledBaseModelURL() -> URL? {
-        guard let resourceURL = Bundle.main.resourceURL else {
-            return nil
-        }
-
-        let candidates = [
-            resourceURL.appendingPathComponent("models/base/model.bin", isDirectory: false),
-            resourceURL.appendingPathComponent("models/base.bin", isDirectory: false),
-            resourceURL.appendingPathComponent("base.bin", isDirectory: false),
-        ]
-
-        return candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) })
-    }
-
-    private func hasUsableWhisperExecutable() -> Bool {
-        if let bundledExecutable = Bundle.main.resourceURL?
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("whisper-cli", isDirectory: false),
-           FileManager.default.isExecutableFile(atPath: bundledExecutable.path) {
-            return true
-        }
-
-        let knownPaths = [
-            "/opt/homebrew/bin/whisper-cli",
-            "/usr/local/bin/whisper-cli",
-            "/usr/bin/whisper-cli",
-        ]
-
-        if knownPaths.contains(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
-            return true
-        }
-
-        let environmentPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        for pathEntry in environmentPath.split(separator: ":") {
-            let candidate = String(pathEntry) + "/whisper-cli"
-            if FileManager.default.isExecutableFile(atPath: candidate) {
-                return true
-            }
-        }
-
-        return false
     }
 
     private func mapTranscriptionWorkflowError(_ error: Error) -> AppWorkflowError {

@@ -164,3 +164,9 @@ final class SettingsStore: ObservableObject {
         return trimmed.isEmpty ? fallback : trimmed
     }
 }
+
+extension SettingsStore: ModelManagerSettingsProviding {
+    var currentSettings: AppSettings {
+        settings
+    }
+}
