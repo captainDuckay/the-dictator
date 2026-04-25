@@ -10,13 +10,20 @@ swiftc \
   scripts/tests/architecture_seams_tests.swift \
   the-dictator/the-dictator/Core/AppSettingsInterfaces.swift \
   the-dictator/the-dictator/Core/ModelManagerModule.swift \
+  the-dictator/the-dictator/Core/SettingsModule.swift \
   the-dictator/the-dictator/Models/WhisperModelCatalog.swift \
   the-dictator/the-dictator/Services/AppLogger.swift \
+  the-dictator/the-dictator/Services/AudioInputDeviceService.swift \
+  the-dictator/the-dictator/Services/HotkeyService.swift \
   the-dictator/the-dictator/Services/ModelCatalogService.swift \
   the-dictator/the-dictator/Services/ModelDownloadService.swift \
   the-dictator/the-dictator/Services/ModelIntegrityService.swift \
   the-dictator/the-dictator/Services/ModelStoreService.swift \
+  the-dictator/the-dictator/Services/NotificationService.swift \
+  the-dictator/the-dictator/Services/PermissionsService.swift \
   the-dictator/the-dictator/Services/RuntimeReadinessService.swift \
+  the-dictator/the-dictator/Services/SettingsStore.swift \
+  the-dictator/the-dictator/Services/TranscriptionBackend.swift \
   -o "$BIN"
 
 "$BIN"
