@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import CoreAudio
 import Foundation
 
 struct AudioInputOption: Identifiable, Equatable {
@@ -12,33 +11,36 @@ struct AudioInputOption: Identifiable, Equatable {
 
 @MainActor
 final class AppModel: ObservableObject {
-    @Published private(set) var workflowState: AppWorkflowState = .idle {
+    // Naming convention:
+    // - `workflow*` fields are mirrored from DictationWorkflow snapshot/output.
+    // - `modelManager*` fields belong to model catalog/install/download UI state.
+    // This keeps ownership explicit at the seam and avoids mixed authorities.
+    @Published private(set) var workflowSnapshotState: AppWorkflowState = .idle {
         didSet {
-            AppLogger.info(AppLogger.workflow, "Workflow state changed: \(String(describing: workflowState))")
-            indicatorService.update(for: workflowState)
+            AppLogger.info(AppLogger.workflow, "Workflow state changed: \(String(describing: workflowSnapshotState))")
+            indicatorService.update(for: workflowSnapshotState)
         }
     }
     @Published private(set) var microphonePermissionStatus: String = "Unknown"
     @Published private(set) var accessibilityPermissionStatus: String = "Unknown"
     @Published private(set) var backendCapabilitiesDescription: String = "Unknown"
-    @Published private(set) var modelRuntimePreflightDescription: String = "Checking bundled runtime assets…"
-    @Published private(set) var transcriptionRuntimeIssue: String?
+    @Published private(set) var workflowRuntimePreflightDescription: String = "Checking bundled runtime assets…"
+    @Published private(set) var workflowRuntimeIssue: String?
     @Published private(set) var audioInputOptions: [AudioInputOption] = []
     @Published private(set) var selectedAudioInputOptionID: String = "systemDefault"
     @Published private(set) var audioInputStatusDescription: String = "Following System Default input."
-    @Published private(set) var availableModels: [ManagedModelDescriptor] = []
+    @Published private(set) var modelManagerAvailableModels: [ManagedModelDescriptor] = []
     @Published private(set) var installedModelIDs: Set<String> = []
-    @Published private(set) var modelDownloadStates: [String: ModelDownloadState] = [:]
+    @Published private(set) var modelManagerDownloadStates: [String: ModelDownloadState] = [:]
     @Published private(set) var updateAvailableModelIDs: Set<String> = []
     @Published private(set) var modelManagerStatusMessage: String?
-    @Published private(set) var modelCatalogLastRefreshedAt: Date?
-    @Published private(set) var modelCatalogNextRetryAt: Date?
-    @Published private(set) var isRefreshingModelCatalog: Bool = false
+    @Published private(set) var modelManagerCatalogLastRefreshedAt: Date?
+    @Published private(set) var modelManagerCatalogNextRetryAt: Date?
+    @Published private(set) var modelManagerIsRefreshingCatalog: Bool = false
 
     private var isUsingFallbackModelCatalog: Bool = false
     private var modelCatalogConsecutiveFailures: Int = 0
     private var activeModelCatalogRefreshTask: Task<Void, Never>?
-    private var lastNotifiedRuntimeIssue: String?
 
     let settingsStore: SettingsStore
     let sessionStore: SessionStore
@@ -46,33 +48,19 @@ final class AppModel: ObservableObject {
     private let notificationService: NotificationService
     private let indicatorService: IndicatorService
     private let hotkeyService: HotkeyService?
-    private let audioCaptureService: AudioCaptureService
     private let audioInputDeviceService: AudioInputDeviceService
-    private let audioCueService: AudioCueService
     private let transcriptionService: TranscriptionService
-    private let textInsertionService: TextInsertionService
     private let permissionsService: PermissionsService
     private let escapeMonitorService: EscapeMonitorService
-    private let latencyTracker: LatencyTracker
     private let modelStoreService: ModelStoreService
     private let modelCatalogService: ModelCatalogService
     private let modelDownloadService: ModelDownloadService
     private let modelIntegrityService: ModelIntegrityService
+    private let dictationWorkflow: DictationWorkflow
 
     private var cancellables = Set<AnyCancellable>()
-    private var recordingStartedAt: Date?
     private var installedModelRecordsByID: [String: InstalledModelRecord] = [:]
-    private var activeTranscriptionTask: Task<Void, Never>?
-    private var activeInsertionTask: Task<Void, Never>?
-    private var activeSessionID: UUID?
-    private var lastInputRoutingState: InputRoutingState?
     private var visibleSettingsWindowCount: Int = 0
-
-    private enum InputRoutingState: Equatable {
-        case systemDefault
-        case preferredAvailable(uid: String)
-        case preferredFallback(uid: String)
-    }
 
     private static let fallbackModelCatalog: [ManagedModelDescriptor] = [
         ManagedModelDescriptor(
@@ -171,27 +159,37 @@ final class AppModel: ObservableObject {
         self.notificationService = notificationService
         self.indicatorService = indicatorService
         self.hotkeyService = hotkeyService
-        self.audioCaptureService = audioCaptureService
         self.audioInputDeviceService = audioInputDeviceService
-        self.audioCueService = audioCueService
         self.transcriptionService = transcriptionService
-        self.textInsertionService = textInsertionService
         self.permissionsService = permissionsService
         self.escapeMonitorService = escapeMonitorService
-        self.latencyTracker = latencyTracker
         self.modelStoreService = modelStoreService
         self.modelCatalogService = modelCatalogService
         self.modelDownloadService = modelDownloadService
         self.modelIntegrityService = modelIntegrityService
+        self.dictationWorkflow = DictationWorkflow(
+            settingsStore: settingsStore,
+            sessionStore: sessionStore,
+            audioCaptureService: audioCaptureService,
+            audioInputDeviceService: audioInputDeviceService,
+            audioCueService: audioCueService,
+            transcriptionService: transcriptionService,
+            textInsertionService: textInsertionService,
+            permissionsService: permissionsService,
+            latencyTracker: latencyTracker,
+            modelStoreService: modelStoreService,
+            notificationService: notificationService
+        )
 
         self.modelDownloadService.onStateChange = { [weak self] modelID, state in
             Task { @MainActor in
-                self?.modelDownloadStates[modelID] = state
+                self?.modelManagerDownloadStates[modelID] = state
             }
         }
 
         notificationService.requestAuthorizationIfNeeded()
         permissionsService.runFirstLaunchChecksIfNeeded(notificationService: notificationService)
+        bindDictationWorkflow()
         setupHotkeyCallbacks()
         bindSettings()
         registerPushToTalkHotkey()
@@ -199,11 +197,10 @@ final class AppModel: ObservableObject {
         refreshPermissionStatuses()
         refreshBackendCapabilitiesDescription()
         refreshAudioInputState()
-        updateModelRuntimePreflightDescription()
         registerBundledBaseModelIfAvailable()
         refreshInstalledModels()
         refreshModelCatalog()
-        reevaluateTranscriptionRuntimeAvailability(notifyIfNeeded: false)
+        dictationWorkflow.refreshRuntimeReadiness(notifyIfNeeded: false)
     }
 
     convenience init() {
@@ -251,7 +248,7 @@ final class AppModel: ObservableObject {
     }
 
     var menuBarSymbolName: String {
-        switch workflowState {
+        switch workflowSnapshotState {
         case .idle:
             return "mic"
         case .recording:
@@ -310,27 +307,25 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func handle(_ event: AppWorkflowEvent) {
-        if case .cancel = event {
-            cancelInFlightOperations()
-        }
+    private func bindDictationWorkflow() {
+        dictationWorkflow.$snapshot
+            .sink { [weak self] snapshot in
+                guard let self else { return }
+                workflowSnapshotState = snapshot.state
+                workflowRuntimeIssue = snapshot.runtimeIssue
+                workflowRuntimePreflightDescription = snapshot.modelRuntimePreflightDescription
+            }
+            .store(in: &cancellables)
 
-        switch event {
-        case .hotkeyDown(let permissionsOK) where !permissionsOK:
-            notificationService.show(
-                title: "The Dictator",
-                body: AppWorkflowError.permissionsDenied.errorDescription ?? "Missing permissions"
-            )
-        case .transcriptionFailed(let error):
-            notificationService.show(title: "The Dictator", body: error.errorDescription ?? "Transcription failed")
-        case .insertionFailed(let error):
-            notificationService.show(title: "The Dictator", body: error.errorDescription ?? "Insertion failed")
-        default:
-            break
+        dictationWorkflow.onOutcome = { [weak self] outcome in
+            guard let self else { return }
+            switch outcome {
+            case .notification(let body):
+                notificationService.show(title: "The Dictator", body: body)
+            case .permissionStatusMayHaveChanged:
+                refreshPermissionStatuses()
+            }
         }
-
-        let nextState = AppStateMachine.reduce(state: workflowState, event: event)
-        workflowState = nextState
     }
 
     func requestMicrophonePermission() {
@@ -388,18 +383,7 @@ final class AppModel: ObservableObject {
     }
 
     func pasteLastTranscript() {
-        guard let transcript = sessionStore.lastRecoverableTranscript, !transcript.isEmpty else {
-            notificationService.show(title: "The Dictator", body: "No recoverable transcript available.")
-            return
-        }
-
-        AppLogger.info(AppLogger.app, "Paste Last Transcript requested for \(transcript.count) chars")
-        startInsertion(
-            transcript: transcript,
-            shouldClearRecoverableTranscriptOnSuccess: false,
-            useStateMachineInsertionState: false,
-            sessionID: nil
-        )
+        dictationWorkflow.pasteLastTranscript()
     }
 
     func refreshModelCatalog(force: Bool = false) {
@@ -407,35 +391,35 @@ final class AppModel: ObservableObject {
             return
         }
 
-        if !force, let nextRetryAt = modelCatalogNextRetryAt, Date() < nextRetryAt {
+        if !force, let nextRetryAt = modelManagerCatalogNextRetryAt, Date() < nextRetryAt {
             let remaining = max(Int(nextRetryAt.timeIntervalSinceNow.rounded()), 1)
             modelManagerStatusMessage = "Model catalog retry scheduled in \(remaining)s."
             return
         }
 
-        isRefreshingModelCatalog = true
+        modelManagerIsRefreshingCatalog = true
         activeModelCatalogRefreshTask = Task { @MainActor in
             defer {
                 activeModelCatalogRefreshTask = nil
-                isRefreshingModelCatalog = false
+                modelManagerIsRefreshingCatalog = false
             }
 
             do {
                 let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
                 let manifest = try await modelCatalogService.fetchManifest()
                 let compatible = modelCatalogService.compatibleModels(from: manifest, appVersion: appVersion)
-                availableModels = compatible.sorted { $0.diskBytes < $1.diskBytes }
+                modelManagerAvailableModels = compatible.sorted { $0.diskBytes < $1.diskBytes }
                 isUsingFallbackModelCatalog = false
                 modelCatalogConsecutiveFailures = 0
-                modelCatalogNextRetryAt = nil
-                modelCatalogLastRefreshedAt = Date()
+                modelManagerCatalogNextRetryAt = nil
+                modelManagerCatalogLastRefreshedAt = Date()
                 modelManagerStatusMessage = compatible.isEmpty ? "No compatible models available for this app version." : nil
             } catch {
-                availableModels = Self.fallbackModelCatalog
+                modelManagerAvailableModels = Self.fallbackModelCatalog
                 isUsingFallbackModelCatalog = true
                 modelCatalogConsecutiveFailures += 1
                 let retryDelay = Self.catalogRetryDelaySeconds(failureCount: modelCatalogConsecutiveFailures)
-                modelCatalogNextRetryAt = Date().addingTimeInterval(retryDelay)
+                modelManagerCatalogNextRetryAt = Date().addingTimeInterval(retryDelay)
                 modelManagerStatusMessage = "Unable to load online model catalog. Showing local fallback metadata."
             }
 
@@ -448,7 +432,7 @@ final class AppModel: ObservableObject {
         installedModelIDs = Set(installedRecords.map(\.modelID))
         installedModelRecordsByID = Dictionary(uniqueKeysWithValues: installedRecords.map { ($0.modelID, $0) })
 
-        let updates = availableModels.compactMap { descriptor -> String? in
+        let updates = modelManagerAvailableModels.compactMap { descriptor -> String? in
             guard let installed = installedModelRecordsByID[descriptor.id] else {
                 return nil
             }
@@ -458,7 +442,7 @@ final class AppModel: ObservableObject {
             return installed.version != descriptor.version ? descriptor.id : nil
         }
         updateAvailableModelIDs = Set(updates)
-        reevaluateTranscriptionRuntimeAvailability()
+        dictationWorkflow.refreshRuntimeReadiness()
     }
 
     func isModelInstalled(_ modelID: String) -> Bool {
@@ -493,17 +477,17 @@ final class AppModel: ObservableObject {
         } else {
             modelManagerStatusMessage = "Switched to installed model: \(recoveryModelID)."
         }
-        reevaluateTranscriptionRuntimeAvailability(notifyIfNeeded: false)
+        dictationWorkflow.refreshRuntimeReadiness(notifyIfNeeded: false)
     }
 
     func downloadModel(id: String) {
-        guard let descriptor = availableModels.first(where: { $0.id == id }) else {
+        guard let descriptor = modelManagerAvailableModels.first(where: { $0.id == id }) else {
             modelManagerStatusMessage = "Unknown model selection: \(id)."
             return
         }
 
         Task { @MainActor in
-            modelDownloadStates[id] = .downloading(progress: 0)
+            modelManagerDownloadStates[id] = .downloading(progress: 0)
 
             do {
                 let tempURL = try await modelDownloadService.startDownload(descriptor)
@@ -513,18 +497,18 @@ final class AppModel: ObservableObject {
                 }
                 _ = try modelStoreService.install(tempFileURL: tempURL, descriptor: descriptor)
                 refreshInstalledModels()
-                modelDownloadStates[id] = .completed(tempFilePath: tempURL.path)
+                modelManagerDownloadStates[id] = .completed(tempFilePath: tempURL.path)
                 modelManagerStatusMessage = "Installed \(descriptor.displayName) (\(descriptor.technicalName))."
             } catch {
                 if let downloadError = error as? ModelDownloadError, case .cancelled = downloadError {
-                    modelDownloadStates[id] = .idle
+                    modelManagerDownloadStates[id] = .idle
                     modelManagerStatusMessage = "Download cancelled for \(descriptor.displayName)."
                     return
                 }
 
                 let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
                 let visibleMessage = message.isEmpty ? "Unknown error" : message
-                modelDownloadStates[id] = .failed(message: visibleMessage)
+                modelManagerDownloadStates[id] = .failed(message: visibleMessage)
                 modelManagerStatusMessage = "Failed to install \(descriptor.displayName): \(visibleMessage)"
                 AppLogger.error(AppLogger.settings, "Model install failed for \(descriptor.id): \(visibleMessage)")
             }
@@ -533,7 +517,7 @@ final class AppModel: ObservableObject {
 
     func cancelModelDownload(id: String) {
         modelDownloadService.cancelDownload(modelID: id)
-        modelDownloadStates[id] = .idle
+        modelManagerDownloadStates[id] = .idle
     }
 
     func deleteModel(id: String) {
@@ -545,7 +529,7 @@ final class AppModel: ObservableObject {
         do {
             try modelStoreService.delete(modelID: id)
             refreshInstalledModels()
-            modelDownloadStates[id] = .idle
+            modelManagerDownloadStates[id] = .idle
             modelManagerStatusMessage = "Deleted model \(id)."
         } catch {
             modelManagerStatusMessage = "Failed to delete model \(id): \(error.localizedDescription)"
@@ -574,7 +558,7 @@ final class AppModel: ObservableObject {
     }
 
     func isBundledModel(_ modelID: String) -> Bool {
-        availableModels.first(where: { $0.id == modelID })?.bundled ?? false
+        modelManagerAvailableModels.first(where: { $0.id == modelID })?.bundled ?? false
     }
 
     func canDeleteModel(_ modelID: String) -> Bool {
@@ -585,18 +569,18 @@ final class AppModel: ObservableObject {
         isUsingFallbackModelCatalog
     }
 
-    var modelCatalogRefreshDescription: String {
+    var modelManagerCatalogRefreshDescription: String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
 
         let refreshedText: String
-        if let refreshedAt = modelCatalogLastRefreshedAt {
+        if let refreshedAt = modelManagerCatalogLastRefreshedAt {
             refreshedText = "Last refresh \(formatter.localizedString(for: refreshedAt, relativeTo: Date()))"
         } else {
             refreshedText = "Catalog not refreshed yet"
         }
 
-        if let retryAt = modelCatalogNextRetryAt, Date() < retryAt {
+        if let retryAt = modelManagerCatalogNextRetryAt, Date() < retryAt {
             return "\(refreshedText) • Retry \(formatter.localizedString(for: retryAt, relativeTo: Date()))"
         }
 
@@ -638,7 +622,7 @@ final class AppModel: ObservableObject {
             return "base"
         }
 
-        if let preferredInstalled = availableModels
+        if let preferredInstalled = modelManagerAvailableModels
             .map(\.id)
             .first(where: { $0 != selected && isModelInstalled($0) }) {
             return preferredInstalled
@@ -650,11 +634,11 @@ final class AppModel: ObservableObject {
     }
 
     func modelStatus(for modelID: String) -> String {
-        if case .downloading(let progress) = modelDownloadStates[modelID] {
+        if case .downloading(let progress) = modelManagerDownloadStates[modelID] {
             return "Downloading \(Int(progress * 100))%"
         }
 
-        if case .failed = modelDownloadStates[modelID] {
+        if case .failed = modelManagerDownloadStates[modelID] {
             return "Failed"
         }
 
@@ -673,85 +657,6 @@ final class AppModel: ObservableObject {
         }
 
         return "Not installed"
-    }
-
-    private func updateModelRuntimePreflightDescription() {
-        let bundledCLI = Bundle.main.resourceURL?
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("whisper-cli", isDirectory: false)
-
-        let cliStatus: String
-        if let bundledCLI, FileManager.default.isExecutableFile(atPath: bundledCLI.path) {
-            cliStatus = "Bundled whisper-cli: ready"
-        } else {
-            cliStatus = "Bundled whisper-cli: missing"
-        }
-
-        let modelStatus = bundledBaseModelURL() == nil ? "Bundled base model: missing" : "Bundled base model: ready"
-        modelRuntimePreflightDescription = "\(cliStatus) • \(modelStatus)"
-    }
-
-    private func reevaluateTranscriptionRuntimeAvailability(notifyIfNeeded: Bool = true) {
-        updateModelRuntimePreflightDescription()
-
-        let settings = settingsStore.settings
-
-        let issue: String?
-        if !hasUsableWhisperExecutable() {
-            issue = "Transcription engine is unavailable. Reinstall the app or add whisper-cli to PATH."
-        } else if settings.useCustomModelPath {
-            if settings.customModelPath.isEmpty || !FileManager.default.fileExists(atPath: settings.customModelPath) {
-                issue = "Custom model file is unavailable. Choose a valid model file in Settings → Transcription."
-            } else {
-                issue = nil
-            }
-        } else if !isModelInstalled(settings.selectedModelID) {
-            issue = "Selected model \(settings.selectedModelID) is not installed. Open Settings → Transcription and download it in Model Manager."
-        } else {
-            issue = nil
-        }
-
-        transcriptionRuntimeIssue = issue
-
-        guard notifyIfNeeded else {
-            return
-        }
-
-        if let issue, issue != lastNotifiedRuntimeIssue {
-            notificationService.show(title: "The Dictator", body: issue)
-            lastNotifiedRuntimeIssue = issue
-        } else if issue == nil {
-            lastNotifiedRuntimeIssue = nil
-        }
-    }
-
-    private func hasUsableWhisperExecutable() -> Bool {
-        if let bundledExecutable = Bundle.main.resourceURL?
-            .appendingPathComponent("bin", isDirectory: true)
-            .appendingPathComponent("whisper-cli", isDirectory: false),
-           FileManager.default.isExecutableFile(atPath: bundledExecutable.path) {
-            return true
-        }
-
-        let knownPaths = [
-            "/opt/homebrew/bin/whisper-cli",
-            "/usr/local/bin/whisper-cli",
-            "/usr/bin/whisper-cli",
-        ]
-
-        if knownPaths.contains(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
-            return true
-        }
-
-        let environmentPath = ProcessInfo.processInfo.environment["PATH"] ?? ""
-        for pathEntry in environmentPath.split(separator: ":") {
-            let candidate = String(pathEntry) + "/whisper-cli"
-            if FileManager.default.isExecutableFile(atPath: candidate) {
-                return true
-            }
-        }
-
-        return false
     }
 
     private func registerBundledBaseModelIfAvailable() {
@@ -789,10 +694,7 @@ final class AppModel: ObservableObject {
 
     private func setupEscapeMonitoring() {
         escapeMonitorService.onEscape = { [weak self] in
-            guard let self else { return }
-            if workflowState == .transcribing || workflowState == .inserting {
-                handle(.cancel)
-            }
+            self?.dictationWorkflow.cancelIfActive()
         }
         escapeMonitorService.start()
     }
@@ -800,13 +702,13 @@ final class AppModel: ObservableObject {
     private func setupHotkeyCallbacks() {
         hotkeyService?.onKeyDown = { [weak self] in
             Task { @MainActor in
-                await self?.onPushToTalkDown()
+                await self?.dictationWorkflow.startDictation()
             }
         }
 
         hotkeyService?.onKeyUp = { [weak self] in
             Task { @MainActor in
-                self?.onPushToTalkUp()
+                self?.dictationWorkflow.finishDictationHold()
             }
         }
     }
@@ -832,7 +734,7 @@ final class AppModel: ObservableObject {
             .map { "\($0.useCustomModelPath)|\($0.customModelPath)|\($0.selectedModelID)" }
             .removeDuplicates()
             .sink { [weak self] _ in
-                self?.reevaluateTranscriptionRuntimeAvailability()
+                self?.dictationWorkflow.refreshRuntimeReadiness()
             }
             .store(in: &cancellables)
 
@@ -894,181 +796,6 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func onPushToTalkDown() async {
-        guard workflowState == .idle, activeSessionID == nil else {
-            return
-        }
-
-        if let runtimeIssue = transcriptionRuntimeIssue {
-            notificationService.show(title: "The Dictator", body: runtimeIssue)
-            return
-        }
-
-        let hasPermission = await permissionsService.requestMicrophonePermissionForRecording(notificationService: notificationService)
-        guard hasPermission else {
-            handle(.hotkeyDown(permissionsOK: false))
-            return
-        }
-
-        let captureRoute = resolveCaptureRoute()
-
-        do {
-            try audioCaptureService.startCapture(deviceID: captureRoute.deviceID)
-            recordingStartedAt = Date()
-            activeSessionID = UUID()
-            handle(.hotkeyDown(permissionsOK: true))
-            updateRouteNotifications(for: captureRoute.routingState)
-            audioCueService.playRecordingStarted(enabled: settingsStore.settings.audioCuesEnabled)
-        } catch {
-            AppLogger.error(AppLogger.app, "Failed to start audio capture: \(error.localizedDescription)")
-            notificationService.show(
-                title: "The Dictator",
-                body: "Couldn’t start recording with current microphone. Try reconnecting or choose another input in Settings."
-            )
-            audioCaptureService.discardCapture()
-            handle(.cancel)
-        }
-    }
-
-    private func onPushToTalkUp() {
-        guard workflowState == .recording, let sessionID = activeSessionID else {
-            return
-        }
-
-        let durationMS = Int((Date().timeIntervalSince(recordingStartedAt ?? Date())) * 1_000)
-        recordingStartedAt = nil
-        audioCueService.playRecordingStopped(enabled: settingsStore.settings.audioCuesEnabled)
-
-        if durationMS < AppStateMachine.minimumHoldDurationMS {
-            audioCaptureService.discardCapture()
-            activeSessionID = nil
-            handle(.hotkeyUp(durationMS: durationMS))
-            return
-        }
-
-        do {
-            let outputURL = try audioCaptureService.stopCaptureAndExportWav()
-            AppLogger.info(AppLogger.app, "Captured audio clip: \(outputURL.path)")
-
-            latencyTracker.markCaptureEnded(sessionID: sessionID)
-            handle(.hotkeyUp(durationMS: durationMS))
-            startTranscription(audioURL: outputURL, sessionID: sessionID)
-        } catch {
-            AppLogger.error(AppLogger.app, "Failed to stop audio capture: \(error.localizedDescription)")
-            notificationService.show(title: "The Dictator", body: "Failed to finalize recorded audio.")
-            audioCaptureService.discardCapture()
-            activeSessionID = nil
-            handle(.cancel)
-        }
-    }
-
-    private func startTranscription(audioURL: URL, sessionID: UUID) {
-        guard workflowState == .transcribing, activeSessionID == sessionID else {
-            return
-        }
-
-        activeTranscriptionTask?.cancel()
-
-        let settings = settingsStore.settings
-
-        activeTranscriptionTask = Task { [weak self] in
-            guard let self else { return }
-
-            defer {
-                try? FileManager.default.removeItem(at: audioURL)
-            }
-
-            do {
-                let result = try await transcriptionService.transcribe(audioURL: audioURL, settings: settings)
-                guard activeSessionID == sessionID else { return }
-
-                latencyTracker.markTranscriptReady(sessionID: sessionID)
-                sessionStore.saveRecoverableTranscript(result.text)
-                AppLogger.info(AppLogger.app, "Transcript ready (\(result.backend)): \(result.text)")
-
-                handle(.transcriptionSucceeded(text: result.text))
-                startInsertion(
-                    transcript: result.text,
-                    shouldClearRecoverableTranscriptOnSuccess: true,
-                    useStateMachineInsertionState: true,
-                    sessionID: sessionID
-                )
-            } catch {
-                let workflowError = mapTranscriptionWorkflowError(error)
-                AppLogger.error(AppLogger.app, "Transcription failed: \(workflowError.localizedDescription)")
-                latencyTracker.clear(sessionID: sessionID)
-                activeSessionID = nil
-                handle(.transcriptionFailed(workflowError))
-            }
-        }
-    }
-
-    private func startInsertion(
-        transcript: String,
-        shouldClearRecoverableTranscriptOnSuccess: Bool,
-        useStateMachineInsertionState: Bool,
-        sessionID: UUID?
-    ) {
-        if useStateMachineInsertionState,
-           (workflowState != .inserting || activeSessionID == nil || activeSessionID != sessionID) {
-            return
-        }
-
-        let hasAccessibility = permissionsService.ensureAccessibilityPermission(notificationService: notificationService)
-        refreshPermissionStatuses()
-        guard hasAccessibility else {
-            if useStateMachineInsertionState {
-                handle(.insertionFailed(.accessibilityDenied))
-            }
-            return
-        }
-
-        activeInsertionTask?.cancel()
-        activeInsertionTask = Task { [weak self] in
-            guard let self else { return }
-
-            do {
-                try await textInsertionService.insert(text: transcript)
-
-                if useStateMachineInsertionState && activeSessionID != sessionID {
-                    return
-                }
-
-                if shouldClearRecoverableTranscriptOnSuccess {
-                    sessionStore.clearRecoverableTranscript()
-                }
-
-                if let sessionID, let latency = latencyTracker.completeInsertion(sessionID: sessionID) {
-                    AppLogger.info(
-                        AppLogger.app,
-                        "Latency session \(latency.sessionID.uuidString): capture->transcript=\(latency.captureToTranscriptMS)ms transcript->insert=\(latency.transcriptToInsertMS)ms total=\(latency.totalCaptureToInsertMS)ms"
-                    )
-                }
-
-                if useStateMachineInsertionState {
-                    handle(.insertionSucceeded)
-                    activeSessionID = nil
-                }
-            } catch {
-                let workflowError = mapInsertionWorkflowError(error)
-                AppLogger.error(AppLogger.app, "Insertion failed: \(workflowError.localizedDescription)")
-
-                if useStateMachineInsertionState {
-                    handle(.insertionFailed(workflowError))
-                    if let sessionID {
-                        latencyTracker.clear(sessionID: sessionID)
-                    }
-                    activeSessionID = nil
-                } else {
-                    notificationService.show(
-                        title: "The Dictator",
-                        body: workflowError.errorDescription ?? "Paste Last Transcript failed"
-                    )
-                }
-            }
-        }
-    }
-
     private func refreshAudioInputState() {
         let devices = audioInputDeviceService.devices
         let preference = settingsStore.settings.audioInputPreference
@@ -1125,122 +852,4 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func resolveCaptureRoute() -> (deviceID: AudioDeviceID?, routingState: InputRoutingState) {
-        let settings = settingsStore.settings
-        let resolution = audioInputDeviceService.resolve(
-            preference: settings.audioInputPreference,
-            preferredName: settings.preferredAudioInputName
-        )
-
-        switch resolution {
-        case .systemDefault(defaultDevice: let defaultDevice):
-            let deviceID = defaultDevice.flatMap { audioInputDeviceService.deviceID(forUID: $0.uid) }
-            AppLogger.info(AppLogger.app, "Audio input route: system default (\(defaultDevice?.name ?? "unknown"))")
-            return (deviceID, .systemDefault)
-
-        case .specificAvailable(device: let device):
-            let deviceID = audioInputDeviceService.deviceID(forUID: device.uid)
-            AppLogger.info(AppLogger.app, "Audio input route: preferred device \(device.name) uid=\(device.uid)")
-            return (deviceID, .preferredAvailable(uid: device.uid))
-
-        case .specificUnavailable(selectedUID: let selectedUID, selectedName: let selectedName, fallbackDevice: let fallbackDevice):
-            let fallbackID = fallbackDevice.flatMap { audioInputDeviceService.deviceID(forUID: $0.uid) }
-            let preferredDisplay = selectedName.isEmpty ? selectedUID : selectedName
-            AppLogger.info(
-                AppLogger.app,
-                "Audio input route fallback: preferred \(preferredDisplay) uid=\(selectedUID) unavailable, using system default \(fallbackDevice?.name ?? "unknown")"
-            )
-            return (fallbackID, .preferredFallback(uid: selectedUID))
-        }
-    }
-
-    private func updateRouteNotifications(for routingState: InputRoutingState) {
-        defer { lastInputRoutingState = routingState }
-
-        switch (lastInputRoutingState, routingState) {
-        case (_, .preferredFallback):
-            if lastInputRoutingState != routingState {
-                notificationService.show(
-                    title: "The Dictator",
-                    body: "Preferred microphone unavailable. Using System Default input."
-                )
-            }
-        case (.preferredFallback(let previousUID), .preferredAvailable(let currentUID)) where previousUID == currentUID:
-            let selectedName = settingsStore.settings.preferredAudioInputName
-            let display = selectedName.isEmpty ? "preferred microphone" : selectedName
-            notificationService.show(
-                title: "The Dictator",
-                body: "Preferred microphone reconnected. Using \(display)."
-            )
-        default:
-            break
-        }
-    }
-
-    private func cancelInFlightOperations() {
-        activeTranscriptionTask?.cancel()
-        activeTranscriptionTask = nil
-        transcriptionService.cancelInFlightTranscription()
-
-        activeInsertionTask?.cancel()
-        activeInsertionTask = nil
-
-        audioCaptureService.discardCapture()
-        recordingStartedAt = nil
-
-        if let sessionID = activeSessionID {
-            latencyTracker.clear(sessionID: sessionID)
-        }
-        activeSessionID = nil
-    }
-
-    private func mapTranscriptionWorkflowError(_ error: Error) -> AppWorkflowError {
-        guard let transcriptionError = error as? TranscriptionError else {
-            return .transcriptionFailed
-        }
-
-        switch transcriptionError {
-        case .cancelled:
-            return .cancelled
-        case .modelPathMissing:
-            return .backendMisconfigured(
-                "Model path is missing. Open Settings → Transcription and set a local whisper model path."
-            )
-        case .modelPathInvalid(let path):
-            return .backendMisconfigured(
-                "Model path is invalid: \(path). Open Settings → Transcription and choose a valid model file."
-            )
-        case .modelNotInstalled(let modelID):
-            return .backendMisconfigured(
-                "Selected model \(modelID) is not installed. Open Settings → Transcription and download it in Model Manager."
-            )
-        case .executableNotFound(let name):
-            return .backendMisconfigured(
-                "\(name) is unavailable. Reinstall the app or use a build that includes the bundled transcription engine."
-            )
-        case .unsupportedBackend(let backend):
-            return .backendMisconfigured(
-                "Unsupported backend: \(backend). Set backend to whisper.cpp in Settings → Transcription."
-            )
-        case .backendLoadFailed(let message):
-            return .backendMisconfigured("Backend failed to load: \(message)")
-        case .timedOut, .emptyTranscript, .backendRuntimeFailed:
-            return .transcriptionFailed
-        }
-    }
-
-    private func mapInsertionWorkflowError(_ error: Error) -> AppWorkflowError {
-        guard let insertionError = error as? TextInsertionError else {
-            return .insertionFailed
-        }
-
-        switch insertionError {
-        case .noActiveTarget:
-            return .noActiveTarget
-        case .accessibilityPermissionMissing:
-            return .accessibilityDenied
-        case .clipboardWriteFailed, .failedToCreatePasteEvents, .pasteLikelyFailed:
-            return .insertionFailed
-        }
-    }
 }
