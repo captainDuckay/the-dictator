@@ -10,7 +10,11 @@ struct TheDictatorApp: App {
         }
 
         Settings {
-            SettingsView(settingsStore: appModel.settingsStore, appModel: appModel)
+            SettingsView(
+                settingsModule: appModel.settingsModule,
+                onAppear: appModel.settingsWindowDidAppear,
+                onDisappear: appModel.settingsWindowDidDisappear
+            )
         }
         .windowResizability(.contentSize)
     }

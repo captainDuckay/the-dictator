@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		48547F432F93FEEB000D7B9E /* the-dictator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "the-dictator.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		48547F432F93FEEB000D7B9E /* the-dictator.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = "the-dictator.app"; path = "The Dictator.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -290,7 +290,10 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
+				EXECUTABLE_NAME = "the-dictator";
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "The Dictator";
+				INFOPLIST_KEY_CFBundleName = "The Dictator";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_ModelManifestURL = "https://github.com/captainDuckay/the-dictator-models/releases/latest/download/manifest.json";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -302,9 +305,6 @@
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "captainDuckay.the-dictator";
 				PRODUCT_NAME = "The Dictator";
-				EXECUTABLE_NAME = "the-dictator";
-				INFOPLIST_KEY_CFBundleDisplayName = "The Dictator";
-				INFOPLIST_KEY_CFBundleName = "The Dictator";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -330,7 +330,10 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
+				EXECUTABLE_NAME = "the-dictator";
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "The Dictator";
+				INFOPLIST_KEY_CFBundleName = "The Dictator";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_ModelManifestURL = "https://github.com/captainDuckay/the-dictator-models/releases/latest/download/manifest.json";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -342,9 +345,6 @@
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "captainDuckay.the-dictator";
 				PRODUCT_NAME = "The Dictator";
-				EXECUTABLE_NAME = "the-dictator";
-				INFOPLIST_KEY_CFBundleDisplayName = "The Dictator";
-				INFOPLIST_KEY_CFBundleName = "The Dictator";
 				REGISTER_APP_GROUPS = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;

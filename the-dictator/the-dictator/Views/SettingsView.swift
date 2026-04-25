@@ -2,11 +2,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct SettingsView: View {
-    @ObservedObject var settingsStore: SettingsStore
-    @ObservedObject var appModel: AppModel
+    @ObservedObject var settingsModule: SettingsModule
+    let onAppear: () -> Void
+    let onDisappear: () -> Void
+
     @State private var isShowingCustomModelImporter = false
 
     var body: some View {
+        let snapshot = settingsModule.snapshot
+
         Form {
             Section("Hotkeys") {
                 LabeledContent("Push-to-talk") {
@@ -33,94 +37,94 @@ struct SettingsView: View {
             Section("Transcription") {
                 TextField("Backend", text: binding(\.backendType))
 
-                if let hint = appModel.modelManagerOnboardingHint {
+                if let hint = snapshot.modelManagerOnboardingHint {
                     Text(hint)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                Text(appModel.workflowRuntimePreflightDescription)
+                Text(snapshot.workflowRuntimePreflightDescription)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
-                if let runtimeIssue = appModel.workflowRuntimeIssue {
+                if let runtimeIssue = snapshot.workflowRuntimeIssue {
                     VStack(alignment: .leading, spacing: 6) {
                         Label(runtimeIssue, systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundStyle(.orange)
 
                         HStack {
-                            if let recoveryTitle = appModel.runtimeRecoveryActionTitle {
+                            if let recoveryTitle = snapshot.runtimeRecoveryActionTitle {
                                 Button(recoveryTitle) {
-                                    appModel.performRuntimeRecoveryAction()
+                                    settingsModule.performRuntimeRecoveryAction()
                                 }
                                 .font(.caption)
                             }
 
                             Button("Re-check Runtime") {
-                                appModel.refreshInstalledModels()
-                                appModel.refreshModelCatalog(force: true)
+                                settingsModule.refreshInstalledModels()
+                                settingsModule.refreshModelCatalog(force: true)
                             }
                             .font(.caption)
                         }
                     }
                 }
 
-                if appModel.isUsingFallbackCatalog {
+                if snapshot.isUsingFallbackCatalog {
                     Label("Using fallback model catalog", systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
 
-                Text(appModel.modelManagerCatalogRefreshDescription)
+                Text(settingsModule.modelManagerCatalogRefreshDescription)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
-                ForEach(appModel.modelManagerAvailableModels) { descriptor in
+                ForEach(snapshot.modelManagerAvailableModels) { descriptor in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            Text(appModel.modelLabel(for: descriptor))
-                                .fontWeight(settingsStore.settings.selectedModelID == descriptor.id && !settingsStore.settings.useCustomModelPath ? .semibold : .regular)
+                            Text(settingsModule.modelLabel(for: descriptor))
+                                .fontWeight(snapshot.settings.selectedModelID == descriptor.id && !snapshot.settings.useCustomModelPath ? .semibold : .regular)
                             Spacer()
-                            Text(appModel.modelStatus(for: descriptor.id))
+                            Text(settingsModule.modelStatus(for: descriptor.id))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
 
-                        Text(appModel.modelResourceHint(for: descriptor))
+                        Text(settingsModule.modelResourceHint(for: descriptor))
                             .font(.caption)
                             .foregroundStyle(.secondary)
 
-                        Text(appModel.modelVersionHint(for: descriptor))
+                        Text(settingsModule.modelVersionHint(for: descriptor))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
 
                         HStack {
                             Button("Use") {
-                                appModel.selectModel(id: descriptor.id)
+                                settingsModule.selectModel(id: descriptor.id)
                             }
-                            .disabled(!appModel.isModelInstalled(descriptor.id))
+                            .disabled(!settingsModule.isModelInstalled(descriptor.id))
 
-                            if appModel.isModelInstalled(descriptor.id) {
-                                if appModel.isModelUpdateAvailable(descriptor.id) {
+                            if settingsModule.isModelInstalled(descriptor.id) {
+                                if settingsModule.isModelUpdateAvailable(descriptor.id) {
                                     Button("Update") {
-                                        appModel.downloadModel(id: descriptor.id)
+                                        settingsModule.downloadModel(id: descriptor.id)
                                     }
                                     .disabled(descriptor.downloadURL == nil)
                                 }
 
-                                if appModel.canDeleteModel(descriptor.id) {
+                                if settingsModule.canDeleteModel(descriptor.id) {
                                     Button("Delete") {
-                                        appModel.deleteModel(id: descriptor.id)
+                                        settingsModule.deleteModel(id: descriptor.id)
                                     }
                                 }
-                            } else if case .downloading = appModel.modelManagerDownloadStates[descriptor.id] {
+                            } else if case .downloading = snapshot.modelManagerDownloadStates[descriptor.id] {
                                 Button("Cancel") {
-                                    appModel.cancelModelDownload(id: descriptor.id)
+                                    settingsModule.cancelModelDownload(id: descriptor.id)
                                 }
                             } else {
                                 Button("Download") {
-                                    appModel.downloadModel(id: descriptor.id)
+                                    settingsModule.downloadModel(id: descriptor.id)
                                 }
                                 .disabled(descriptor.downloadURL == nil)
                             }
@@ -129,7 +133,7 @@ struct SettingsView: View {
                     .padding(.vertical, 2)
                 }
 
-                if let modelManagerStatusMessage = appModel.modelManagerStatusMessage {
+                if let modelManagerStatusMessage = snapshot.modelManagerStatusMessage {
                     Text(modelManagerStatusMessage)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -137,18 +141,18 @@ struct SettingsView: View {
 
                 HStack {
                     Button("Refresh Model Catalog") {
-                        appModel.refreshModelCatalog(force: true)
+                        settingsModule.refreshModelCatalog(force: true)
                     }
-                    .disabled(appModel.modelManagerIsRefreshingCatalog)
+                    .disabled(snapshot.modelManagerIsRefreshingCatalog)
 
-                    if appModel.modelManagerIsRefreshingCatalog {
+                    if snapshot.modelManagerIsRefreshingCatalog {
                         ProgressView()
                             .controlSize(.small)
                     }
                 }
 
                 Toggle("Use custom local model (Advanced)", isOn: binding(\.useCustomModelPath))
-                if settingsStore.settings.useCustomModelPath {
+                if snapshot.settings.useCustomModelPath {
                     TextField("Custom model path", text: binding(\.customModelPath))
 
                     Button("Choose Custom Model File…") {
@@ -163,10 +167,8 @@ struct SettingsView: View {
                             return
                         }
 
-                        settingsStore.update { settings in
-                            settings.customModelPath = url.path
-                            settings.useCustomModelPath = true
-                        }
+                        settingsModule.updateSetting(\.customModelPath, url.path)
+                        settingsModule.updateSetting(\.useCustomModelPath, true)
                     }
                 }
 
@@ -175,7 +177,7 @@ struct SettingsView: View {
                 Toggle("Polished output", isOn: binding(\.polishedOutputEnabled))
 
                 LabeledContent("Capabilities") {
-                    Text(appModel.backendCapabilitiesDescription)
+                    Text(snapshot.backendCapabilitiesDescription)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.trailing)
@@ -186,64 +188,62 @@ struct SettingsView: View {
                 Toggle("Audio cues", isOn: binding(\.audioCuesEnabled))
 
                 Picker("Input microphone", selection: audioInputSelectionBinding) {
-                    ForEach(appModel.audioInputOptions) { option in
+                    ForEach(snapshot.audioInputOptions) { option in
                         Text(option.title).tag(option.id)
                     }
                 }
 
-                Text(appModel.audioInputStatusDescription)
+                Text(snapshot.audioInputStatusDescription)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
                 Button("Refresh Audio Inputs") {
-                    appModel.refreshAudioInputDevices()
+                    settingsModule.refreshAudioInputDevices()
                 }
             }
 
             Section("Permissions") {
                 LabeledContent("Microphone") {
-                    Text(appModel.microphonePermissionStatus)
+                    Text(snapshot.microphonePermissionStatus)
                 }
 
                 LabeledContent("Accessibility") {
-                    Text(appModel.accessibilityPermissionStatus)
+                    Text(snapshot.accessibilityPermissionStatus)
                 }
 
                 Button("Refresh Permission Status") {
-                    appModel.refreshPermissionStatuses()
+                    settingsModule.refreshPermissionStatuses()
+                }
+
+                Button("Request Microphone Permission") {
+                    settingsModule.requestMicrophonePermission()
                 }
 
                 Button("Open Microphone Privacy Settings") {
-                    appModel.openMicrophonePrivacySettings()
+                    settingsModule.openMicrophonePrivacySettings()
                 }
             }
         }
         .formStyle(.grouped)
         .padding()
         .frame(width: 480)
-        .onAppear {
-            appModel.settingsWindowDidAppear()
-        }
-        .onDisappear {
-            appModel.settingsWindowDidDisappear()
-        }
+        .onAppear(perform: onAppear)
+        .onDisappear(perform: onDisappear)
     }
 
     private var audioInputSelectionBinding: Binding<String> {
         Binding {
-            appModel.selectedAudioInputOptionID
+            settingsModule.snapshot.selectedAudioInputOptionID
         } set: { newValue in
-            appModel.selectAudioInputOption(id: newValue)
+            settingsModule.selectAudioInputOption(id: newValue)
         }
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
         Binding {
-            settingsStore.settings[keyPath: keyPath]
+            settingsModule.snapshot.settings[keyPath: keyPath]
         } set: { newValue in
-            settingsStore.update { settings in
-                settings[keyPath: keyPath] = newValue
-            }
+            settingsModule.updateSetting(keyPath, newValue)
         }
     }
 }
