@@ -240,10 +240,10 @@ final class AudioInputDeviceService: ObservableObject {
             mElement: kAudioObjectPropertyElementMain
         )
 
-        var cfName: CFString = "" as CFString
-        var size = UInt32(MemoryLayout<CFString>.size)
+        var cfName: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &cfName)
-        return status == noErr ? (cfName as String) : nil
+        return status == noErr ? (cfName?.takeUnretainedValue() as String?) : nil
     }
 
     private static func deviceUID(_ deviceID: AudioDeviceID) -> String? {
@@ -253,10 +253,10 @@ final class AudioInputDeviceService: ObservableObject {
             mElement: kAudioObjectPropertyElementMain
         )
 
-        var cfUID: CFString = "" as CFString
-        var size = UInt32(MemoryLayout<CFString>.size)
+        var cfUID: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &cfUID)
-        return status == noErr ? (cfUID as String) : nil
+        return status == noErr ? (cfUID?.takeUnretainedValue() as String?) : nil
     }
 
     private static func deviceSampleRate(_ deviceID: AudioDeviceID) -> Double? {
