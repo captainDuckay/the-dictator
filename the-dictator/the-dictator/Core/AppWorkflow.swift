@@ -197,14 +197,20 @@ final class DictationWorkflow: ObservableObject {
     }
 
     func startDictation() async {
+        AppLogger.diagnostic(AppLogger.workflow, "startDictation requested. state=\(String(describing: snapshot.state)) activeSessionID=\(activeSessionID?.uuidString ?? "nil")")
+
         guard snapshot.state == .idle, activeSessionID == nil else {
+            AppLogger.diagnostic(AppLogger.workflow, "startDictation ignored because workflow is not idle")
             return
         }
 
         if let runtimeIssue = snapshot.runtimeIssue {
+            AppLogger.diagnostic(AppLogger.workflow, "startDictation blocked by runtime issue: \(runtimeIssue)")
             onOutcome?(.notification(runtimeIssue))
             return
         }
+
+        logAudioDeviceSnapshot(context: "pre-capture")
 
         let hasPermission = await permissionsService.requestMicrophonePermissionForRecording(notificationService: notificationService)
         onOutcome?(.permissionStatusMayHaveChanged)
@@ -218,7 +224,17 @@ final class DictationWorkflow: ObservableObject {
         let captureRoute = resolveCaptureRoute()
 
         do {
-            try audioCaptureService.startCapture(deviceID: captureRoute.deviceID)
+            do {
+                try audioCaptureService.startCapture(deviceID: captureRoute.deviceID)
+            } catch {
+                if shouldRetryWithSystemDefault(for: error, attemptedDeviceID: captureRoute.deviceID) {
+                    AppLogger.info(AppLogger.app, "Retrying audio capture with system-selected default input device")
+                    try audioCaptureService.startCapture(deviceID: nil)
+                } else {
+                    throw error
+                }
+            }
+
             recordingStartedAt = Date()
             activeSessionID = UUID()
             apply(.hotkeyDown(permissionsOK: true))
@@ -233,7 +249,10 @@ final class DictationWorkflow: ObservableObject {
     }
 
     func finishDictationHold() {
+        AppLogger.diagnostic(AppLogger.workflow, "finishDictationHold requested. state=\(String(describing: snapshot.state)) activeSessionID=\(activeSessionID?.uuidString ?? "nil")")
+
         guard snapshot.state == .recording, let sessionID = activeSessionID else {
+            AppLogger.diagnostic(AppLogger.workflow, "finishDictationHold ignored because app is not recording")
             return
         }
 
@@ -405,6 +424,22 @@ final class DictationWorkflow: ObservableObject {
         }
     }
 
+    private func logAudioDeviceSnapshot(context: String) {
+        guard AppLogger.diagnosticAudioRoutingEnabled else {
+            return
+        }
+
+        let listedDevices = audioInputDeviceService.devices
+            .map { device in
+                let defaultMarker = device.isSystemDefault ? "*" : ""
+                let availability = device.isAvailable ? "up" : "down"
+                return "\(defaultMarker)\(device.name){\(availability)}"
+            }
+            .joined(separator: ", ")
+
+        AppLogger.diagnostic(AppLogger.app, "Audio devices [\(context)]: \(listedDevices)")
+    }
+
     private func resolveCaptureRoute() -> (deviceID: AudioDeviceID?, routingState: InputRoutingState) {
         let settings = settingsProvider.currentSettings
         let resolution = audioInputDeviceService.resolve(
@@ -414,9 +449,8 @@ final class DictationWorkflow: ObservableObject {
 
         switch resolution {
         case .systemDefault(defaultDevice: let defaultDevice):
-            let deviceID = defaultDevice.flatMap { audioInputDeviceService.deviceID(forUID: $0.uid) }
             AppLogger.info(AppLogger.app, "Audio input route: system default (\(defaultDevice?.name ?? "unknown"))")
-            return (deviceID, .systemDefault)
+            return (nil, .systemDefault)
 
         case .specificAvailable(device: let device):
             let deviceID = audioInputDeviceService.deviceID(forUID: device.uid)
@@ -424,14 +458,25 @@ final class DictationWorkflow: ObservableObject {
             return (deviceID, .preferredAvailable(uid: device.uid))
 
         case .specificUnavailable(selectedUID: let selectedUID, selectedName: let selectedName, fallbackDevice: let fallbackDevice):
-            let fallbackID = fallbackDevice.flatMap { audioInputDeviceService.deviceID(forUID: $0.uid) }
             let preferredDisplay = selectedName.isEmpty ? selectedUID : selectedName
             AppLogger.info(
                 AppLogger.app,
                 "Audio input route fallback: preferred \(preferredDisplay) uid=\(selectedUID) unavailable, using system default \(fallbackDevice?.name ?? "unknown")"
             )
-            return (fallbackID, .preferredFallback(uid: selectedUID))
+            return (nil, .preferredFallback(uid: selectedUID))
         }
+    }
+
+    private func shouldRetryWithSystemDefault(for error: Error, attemptedDeviceID: AudioDeviceID?) -> Bool {
+        guard attemptedDeviceID != nil else {
+            return false
+        }
+
+        guard case AudioCaptureError.failedToSelectInputDevice = error else {
+            return false
+        }
+
+        return true
     }
 
     private func updateRouteNotifications(for routingState: InputRoutingState) {

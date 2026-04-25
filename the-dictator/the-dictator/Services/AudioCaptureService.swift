@@ -22,10 +22,27 @@ enum AudioCaptureError: LocalizedError {
         case .fileWriteFailed:
             return "Failed to write captured audio."
         case .failedToSelectInputDevice(let status):
-            return "Failed to select microphone device (status: \(status))."
+            return "Failed to select microphone device (status: \(status), fourCC: \(Self.fourCCString(for: status)))."
         case .audioUnitUnavailable:
             return "Failed to access audio input unit."
         }
+    }
+
+    private static func fourCCString(for status: OSStatus) -> String {
+        let value = UInt32(bitPattern: status)
+        let scalars: [UnicodeScalar] = [
+            UnicodeScalar((value >> 24) & 0xFF),
+            UnicodeScalar((value >> 16) & 0xFF),
+            UnicodeScalar((value >> 8) & 0xFF),
+            UnicodeScalar(value & 0xFF),
+        ].compactMap { $0 }
+
+        if scalars.count == 4,
+           scalars.allSatisfy({ (32...126).contains(Int($0.value)) }) {
+            return String(String.UnicodeScalarView(scalars))
+        }
+
+        return "0x\(String(value, radix: 16, uppercase: true))"
     }
 }
 

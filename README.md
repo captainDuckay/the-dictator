@@ -53,3 +53,19 @@ Download release artifacts from GitHub Releases:
 ```bash
 scripts/build-unsigned-release-artifacts.sh --version 1.0.0
 ```
+
+## Optional diagnostics in Release test builds
+
+To enable audio routing/hotkey diagnostics without enabling full `DEBUG` behavior,
+compile with `DIAGNOSTIC_AUDIO_ROUTING`:
+
+```bash
+xcodebuild \
+  -scheme the-dictator \
+  -configuration Release \
+  -project the-dictator/the-dictator.xcodeproj \
+  OTHER_SWIFT_FLAGS='$(inherited) -DDIAGNOSTIC_AUDIO_ROUTING' \
+  build
+```
+
+Diagnostic lines are prefixed with `[diag.audio]`.
