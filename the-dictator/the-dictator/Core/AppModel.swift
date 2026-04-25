@@ -13,7 +13,7 @@ struct AudioInputOption: Identifiable, Equatable {
 final class AppModel: ObservableObject {
     // Naming convention:
     // - `workflow*` fields are mirrored from DictationWorkflow snapshot/output.
-    // - `modelManager*` fields belong to model catalog/install/download UI state.
+    // - `modelManager*` fields are mirrored from ModelManagerModule snapshot/output.
     // This keeps ownership explicit at the seam and avoids mixed authorities.
     @Published private(set) var workflowSnapshotState: AppWorkflowState = .idle {
         didSet {
@@ -38,10 +38,6 @@ final class AppModel: ObservableObject {
     @Published private(set) var modelManagerCatalogNextRetryAt: Date?
     @Published private(set) var modelManagerIsRefreshingCatalog: Bool = false
 
-    private var isUsingFallbackModelCatalog: Bool = false
-    private var modelCatalogConsecutiveFailures: Int = 0
-    private var activeModelCatalogRefreshTask: Task<Void, Never>?
-
     let settingsStore: SettingsStore
     let sessionStore: SessionStore
 
@@ -52,88 +48,11 @@ final class AppModel: ObservableObject {
     private let transcriptionService: TranscriptionService
     private let permissionsService: PermissionsService
     private let escapeMonitorService: EscapeMonitorService
-    private let modelStoreService: ModelStoreService
-    private let modelCatalogService: ModelCatalogService
-    private let modelDownloadService: ModelDownloadService
-    private let modelIntegrityService: ModelIntegrityService
     private let dictationWorkflow: DictationWorkflow
+    private let modelManager: ModelManagerModule
 
     private var cancellables = Set<AnyCancellable>()
-    private var installedModelRecordsByID: [String: InstalledModelRecord] = [:]
     private var visibleSettingsWindowCount: Int = 0
-
-    private static let fallbackModelCatalog: [ManagedModelDescriptor] = [
-        ManagedModelDescriptor(
-            id: "tiny",
-            level: .tiny,
-            displayName: "Fastest",
-            technicalName: "tiny",
-            diskBytes: 78_000_000,
-            estimatedRamBytes: 350_000_000,
-            downloadURL: nil,
-            sha256: "",
-            version: "fallback",
-            bundled: false,
-            minAppVersion: "0.0.0",
-            maxAppVersion: nil
-        ),
-        ManagedModelDescriptor(
-            id: "base",
-            level: .base,
-            displayName: "Balanced",
-            technicalName: "base",
-            diskBytes: 142_000_000,
-            estimatedRamBytes: 500_000_000,
-            downloadURL: nil,
-            sha256: "",
-            version: "fallback",
-            bundled: true,
-            minAppVersion: "0.0.0",
-            maxAppVersion: nil
-        ),
-        ManagedModelDescriptor(
-            id: "small",
-            level: .small,
-            displayName: "Higher Accuracy",
-            technicalName: "small",
-            diskBytes: 488_000_000,
-            estimatedRamBytes: 1_300_000_000,
-            downloadURL: nil,
-            sha256: "",
-            version: "fallback",
-            bundled: false,
-            minAppVersion: "0.0.0",
-            maxAppVersion: nil
-        ),
-        ManagedModelDescriptor(
-            id: "medium",
-            level: .medium,
-            displayName: "High Accuracy",
-            technicalName: "medium",
-            diskBytes: 1_530_000_000,
-            estimatedRamBytes: 3_500_000_000,
-            downloadURL: nil,
-            sha256: "",
-            version: "fallback",
-            bundled: false,
-            minAppVersion: "0.0.0",
-            maxAppVersion: nil
-        ),
-        ManagedModelDescriptor(
-            id: "large",
-            level: .large,
-            displayName: "Best Accuracy",
-            technicalName: "large",
-            diskBytes: 3_100_000_000,
-            estimatedRamBytes: 6_500_000_000,
-            downloadURL: nil,
-            sha256: "",
-            version: "fallback",
-            bundled: false,
-            minAppVersion: "0.0.0",
-            maxAppVersion: nil
-        ),
-    ]
 
     init(
         settingsStore: SettingsStore,
@@ -152,7 +71,8 @@ final class AppModel: ObservableObject {
         modelStoreService: ModelStoreService,
         modelCatalogService: ModelCatalogService,
         modelDownloadService: ModelDownloadService,
-        modelIntegrityService: ModelIntegrityService
+        modelIntegrityService: ModelIntegrityService,
+        runtimeReadinessService: DictationRuntimeReadinessProviding
     ) {
         self.settingsStore = settingsStore
         self.sessionStore = sessionStore
@@ -163,12 +83,17 @@ final class AppModel: ObservableObject {
         self.transcriptionService = transcriptionService
         self.permissionsService = permissionsService
         self.escapeMonitorService = escapeMonitorService
-        self.modelStoreService = modelStoreService
-        self.modelCatalogService = modelCatalogService
-        self.modelDownloadService = modelDownloadService
-        self.modelIntegrityService = modelIntegrityService
+
+        self.modelManager = ModelManagerModule(
+            settingsProvider: settingsStore,
+            modelStoreService: modelStoreService,
+            modelCatalogService: modelCatalogService,
+            modelDownloadService: modelDownloadService,
+            modelIntegrityService: modelIntegrityService
+        )
+
         self.dictationWorkflow = DictationWorkflow(
-            settingsStore: settingsStore,
+            settingsProvider: settingsStore,
             sessionStore: sessionStore,
             audioCaptureService: audioCaptureService,
             audioInputDeviceService: audioInputDeviceService,
@@ -177,19 +102,18 @@ final class AppModel: ObservableObject {
             textInsertionService: textInsertionService,
             permissionsService: permissionsService,
             latencyTracker: latencyTracker,
-            modelStoreService: modelStoreService,
+            runtimeReadinessProvider: runtimeReadinessService,
             notificationService: notificationService
         )
 
-        self.modelDownloadService.onStateChange = { [weak self] modelID, state in
-            Task { @MainActor in
-                self?.modelManagerDownloadStates[modelID] = state
-            }
+        self.modelManager.onInventoryChanged = { [weak self] in
+            self?.dictationWorkflow.refreshRuntimeReadiness()
         }
 
         notificationService.requestAuthorizationIfNeeded()
         permissionsService.runFirstLaunchChecksIfNeeded(notificationService: notificationService)
         bindDictationWorkflow()
+        bindModelManager()
         setupHotkeyCallbacks()
         bindSettings()
         registerPushToTalkHotkey()
@@ -197,9 +121,7 @@ final class AppModel: ObservableObject {
         refreshPermissionStatuses()
         refreshBackendCapabilitiesDescription()
         refreshAudioInputState()
-        registerBundledBaseModelIfAvailable()
-        refreshInstalledModels()
-        refreshModelCatalog()
+        applyModelManagerSnapshot(modelManager.snapshot)
         dictationWorkflow.refreshRuntimeReadiness(notifyIfNeeded: false)
     }
 
@@ -221,6 +143,7 @@ final class AppModel: ObservableObject {
         let modelCatalogService = ModelCatalogService(manifestURL: AppConfiguration.modelManifestURL)
         let modelDownloadService = ModelDownloadService()
         let modelIntegrityService = ModelIntegrityService()
+        let runtimeReadinessService = RuntimeReadinessService(modelStoreService: modelStoreService)
 
         self.init(
             settingsStore: settingsStore,
@@ -239,7 +162,8 @@ final class AppModel: ObservableObject {
             modelStoreService: modelStoreService,
             modelCatalogService: modelCatalogService,
             modelDownloadService: modelDownloadService,
-            modelIntegrityService: modelIntegrityService
+            modelIntegrityService: modelIntegrityService,
+            runtimeReadinessService: runtimeReadinessService
         )
 
         if hotkeyService == nil {
@@ -328,6 +252,25 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func bindModelManager() {
+        modelManager.$snapshot
+            .sink { [weak self] snapshot in
+                self?.applyModelManagerSnapshot(snapshot)
+            }
+            .store(in: &cancellables)
+    }
+
+    private func applyModelManagerSnapshot(_ snapshot: ModelManagerSnapshot) {
+        modelManagerAvailableModels = snapshot.availableModels
+        installedModelIDs = snapshot.installedModelIDs
+        modelManagerDownloadStates = snapshot.downloadStates
+        updateAvailableModelIDs = snapshot.updateAvailableModelIDs
+        modelManagerStatusMessage = snapshot.statusMessage
+        modelManagerCatalogLastRefreshedAt = snapshot.catalogLastRefreshedAt
+        modelManagerCatalogNextRetryAt = snapshot.catalogNextRetryAt
+        modelManagerIsRefreshingCatalog = snapshot.isRefreshingCatalog
+    }
+
     func requestMicrophonePermission() {
         Task { @MainActor in
             let granted = await permissionsService.requestMicrophonePermissionForRecording(notificationService: notificationService)
@@ -387,309 +330,80 @@ final class AppModel: ObservableObject {
     }
 
     func refreshModelCatalog(force: Bool = false) {
-        if activeModelCatalogRefreshTask != nil {
-            return
-        }
-
-        if !force, let nextRetryAt = modelManagerCatalogNextRetryAt, Date() < nextRetryAt {
-            let remaining = max(Int(nextRetryAt.timeIntervalSinceNow.rounded()), 1)
-            modelManagerStatusMessage = "Model catalog retry scheduled in \(remaining)s."
-            return
-        }
-
-        modelManagerIsRefreshingCatalog = true
-        activeModelCatalogRefreshTask = Task { @MainActor in
-            defer {
-                activeModelCatalogRefreshTask = nil
-                modelManagerIsRefreshingCatalog = false
-            }
-
-            do {
-                let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
-                let manifest = try await modelCatalogService.fetchManifest()
-                let compatible = modelCatalogService.compatibleModels(from: manifest, appVersion: appVersion)
-                modelManagerAvailableModels = compatible.sorted { $0.diskBytes < $1.diskBytes }
-                isUsingFallbackModelCatalog = false
-                modelCatalogConsecutiveFailures = 0
-                modelManagerCatalogNextRetryAt = nil
-                modelManagerCatalogLastRefreshedAt = Date()
-                modelManagerStatusMessage = compatible.isEmpty ? "No compatible models available for this app version." : nil
-            } catch {
-                modelManagerAvailableModels = Self.fallbackModelCatalog
-                isUsingFallbackModelCatalog = true
-                modelCatalogConsecutiveFailures += 1
-                let retryDelay = Self.catalogRetryDelaySeconds(failureCount: modelCatalogConsecutiveFailures)
-                modelManagerCatalogNextRetryAt = Date().addingTimeInterval(retryDelay)
-                modelManagerStatusMessage = "Unable to load online model catalog. Showing local fallback metadata."
-            }
-
-            refreshInstalledModels()
-        }
+        modelManager.refreshModelCatalog(force: force)
     }
 
     func refreshInstalledModels() {
-        let installedRecords = modelStoreService.allInstalled()
-        installedModelIDs = Set(installedRecords.map(\.modelID))
-        installedModelRecordsByID = Dictionary(uniqueKeysWithValues: installedRecords.map { ($0.modelID, $0) })
-
-        let updates = modelManagerAvailableModels.compactMap { descriptor -> String? in
-            guard let installed = installedModelRecordsByID[descriptor.id] else {
-                return nil
-            }
-            if isUsingFallbackModelCatalog {
-                return nil
-            }
-            return installed.version != descriptor.version ? descriptor.id : nil
-        }
-        updateAvailableModelIDs = Set(updates)
-        dictationWorkflow.refreshRuntimeReadiness()
+        modelManager.refreshInstalledModels()
     }
 
     func isModelInstalled(_ modelID: String) -> Bool {
-        installedModelIDs.contains(modelID)
+        modelManager.isModelInstalled(modelID)
     }
 
     func isModelUpdateAvailable(_ modelID: String) -> Bool {
-        updateAvailableModelIDs.contains(modelID)
+        modelManager.isModelUpdateAvailable(modelID)
     }
 
     func selectModel(id: String) {
-        settingsStore.update { settings in
-            settings.selectedModelID = id
-            settings.useCustomModelPath = false
-        }
+        modelManager.selectModel(id: id)
     }
 
     func performRuntimeRecoveryAction() {
-        let previousModelID = settingsStore.settings.selectedModelID
-        guard let recoveryModelID = runtimeRecoveryTargetModelID else {
-            return
-        }
-
-        AppLogger.info(
-            AppLogger.settings,
-            "Runtime recovery action: switching model from \(previousModelID) to \(recoveryModelID)."
-        )
-
-        selectModel(id: recoveryModelID)
-        if recoveryModelID == "base" {
-            modelManagerStatusMessage = "Switched to bundled base model."
-        } else {
-            modelManagerStatusMessage = "Switched to installed model: \(recoveryModelID)."
-        }
+        modelManager.performRuntimeRecoveryAction()
         dictationWorkflow.refreshRuntimeReadiness(notifyIfNeeded: false)
     }
 
     func downloadModel(id: String) {
-        guard let descriptor = modelManagerAvailableModels.first(where: { $0.id == id }) else {
-            modelManagerStatusMessage = "Unknown model selection: \(id)."
-            return
-        }
-
-        Task { @MainActor in
-            modelManagerDownloadStates[id] = .downloading(progress: 0)
-
-            do {
-                let tempURL = try await modelDownloadService.startDownload(descriptor)
-                let expectedHash = descriptor.sha256.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !expectedHash.isEmpty {
-                    try modelIntegrityService.verifySHA256(fileURL: tempURL, expectedHex: expectedHash)
-                }
-                _ = try modelStoreService.install(tempFileURL: tempURL, descriptor: descriptor)
-                refreshInstalledModels()
-                modelManagerDownloadStates[id] = .completed(tempFilePath: tempURL.path)
-                modelManagerStatusMessage = "Installed \(descriptor.displayName) (\(descriptor.technicalName))."
-            } catch {
-                if let downloadError = error as? ModelDownloadError, case .cancelled = downloadError {
-                    modelManagerDownloadStates[id] = .idle
-                    modelManagerStatusMessage = "Download cancelled for \(descriptor.displayName)."
-                    return
-                }
-
-                let message = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-                let visibleMessage = message.isEmpty ? "Unknown error" : message
-                modelManagerDownloadStates[id] = .failed(message: visibleMessage)
-                modelManagerStatusMessage = "Failed to install \(descriptor.displayName): \(visibleMessage)"
-                AppLogger.error(AppLogger.settings, "Model install failed for \(descriptor.id): \(visibleMessage)")
-            }
-        }
+        modelManager.downloadModel(id: id)
     }
 
     func cancelModelDownload(id: String) {
-        modelDownloadService.cancelDownload(modelID: id)
-        modelManagerDownloadStates[id] = .idle
+        modelManager.cancelModelDownload(id: id)
     }
 
     func deleteModel(id: String) {
-        guard canDeleteModel(id) else {
-            modelManagerStatusMessage = "\(id) is bundled with the app and cannot be deleted."
-            return
-        }
-
-        do {
-            try modelStoreService.delete(modelID: id)
-            refreshInstalledModels()
-            modelManagerDownloadStates[id] = .idle
-            modelManagerStatusMessage = "Deleted model \(id)."
-        } catch {
-            modelManagerStatusMessage = "Failed to delete model \(id): \(error.localizedDescription)"
-        }
+        modelManager.deleteModel(id: id)
     }
 
     func modelLabel(for descriptor: ManagedModelDescriptor) -> String {
-        "\(descriptor.displayName) (\(descriptor.technicalName))"
+        modelManager.modelLabel(for: descriptor)
     }
 
     func modelResourceHint(for descriptor: ManagedModelDescriptor) -> String {
-        let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB]
-        formatter.countStyle = .file
-        let disk = formatter.string(fromByteCount: descriptor.diskBytes)
-        let ram = formatter.string(fromByteCount: descriptor.estimatedRamBytes)
-        return "Disk: \(disk) • Est. RAM: \(ram)"
+        modelManager.modelResourceHint(for: descriptor)
     }
 
     func modelVersionHint(for descriptor: ManagedModelDescriptor) -> String {
-        let available = descriptor.version
-        if let installed = installedModelRecordsByID[descriptor.id]?.version {
-            return installed == available ? "Version: \(available)" : "Installed: \(installed) • Available: \(available)"
-        }
-        return "Available version: \(available)"
+        modelManager.modelVersionHint(for: descriptor)
     }
 
     func isBundledModel(_ modelID: String) -> Bool {
-        modelManagerAvailableModels.first(where: { $0.id == modelID })?.bundled ?? false
+        modelManager.isBundledModel(modelID)
     }
 
     func canDeleteModel(_ modelID: String) -> Bool {
-        isModelInstalled(modelID) && !isBundledModel(modelID)
+        modelManager.canDeleteModel(modelID)
     }
 
     var isUsingFallbackCatalog: Bool {
-        isUsingFallbackModelCatalog
+        modelManager.snapshot.isUsingFallbackCatalog
     }
 
     var modelManagerCatalogRefreshDescription: String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-
-        let refreshedText: String
-        if let refreshedAt = modelManagerCatalogLastRefreshedAt {
-            refreshedText = "Last refresh \(formatter.localizedString(for: refreshedAt, relativeTo: Date()))"
-        } else {
-            refreshedText = "Catalog not refreshed yet"
-        }
-
-        if let retryAt = modelManagerCatalogNextRetryAt, Date() < retryAt {
-            return "\(refreshedText) • Retry \(formatter.localizedString(for: retryAt, relativeTo: Date()))"
-        }
-
-        return refreshedText
+        modelManager.catalogRefreshDescription()
     }
 
     var modelManagerOnboardingHint: String? {
-        if isModelInstalled("base") {
-            return "Balanced (base) is bundled and ready for offline dictation."
-        }
-
-        return "No bundled base model detected. Download a model to start dictation."
+        modelManager.onboardingHint
     }
 
     var runtimeRecoveryActionTitle: String? {
-        guard let recoveryModelID = runtimeRecoveryTargetModelID else {
-            return nil
-        }
-
-        if recoveryModelID == "base" {
-            return "Use bundled base model"
-        }
-
-        return "Use installed model (\(recoveryModelID))"
-    }
-
-    private var runtimeRecoveryTargetModelID: String? {
-        let settings = settingsStore.settings
-        guard !settings.useCustomModelPath else {
-            return nil
-        }
-
-        let selected = settings.selectedModelID
-        guard !isModelInstalled(selected) else {
-            return nil
-        }
-
-        if selected != "base", isModelInstalled("base") {
-            return "base"
-        }
-
-        if let preferredInstalled = modelManagerAvailableModels
-            .map(\.id)
-            .first(where: { $0 != selected && isModelInstalled($0) }) {
-            return preferredInstalled
-        }
-
-        return installedModelIDs
-            .sorted()
-            .first(where: { $0 != selected })
+        modelManager.runtimeRecoveryActionTitle
     }
 
     func modelStatus(for modelID: String) -> String {
-        if case .downloading(let progress) = modelManagerDownloadStates[modelID] {
-            return "Downloading \(Int(progress * 100))%"
-        }
-
-        if case .failed = modelManagerDownloadStates[modelID] {
-            return "Failed"
-        }
-
-        if settingsStore.settings.selectedModelID == modelID && !settingsStore.settings.useCustomModelPath {
-            if isModelInstalled(modelID) {
-                return isModelUpdateAvailable(modelID) ? "Active • Update available" : "Active"
-            }
-            return "Selected (not installed)"
-        }
-
-        if isModelInstalled(modelID) {
-            if isBundledModel(modelID) {
-                return isModelUpdateAvailable(modelID) ? "Bundled • Update available" : "Bundled"
-            }
-            return isModelUpdateAvailable(modelID) ? "Installed • Update available" : "Installed"
-        }
-
-        return "Not installed"
-    }
-
-    private func registerBundledBaseModelIfAvailable() {
-        guard let bundledModelURL = bundledBaseModelURL() else {
-            return
-        }
-
-        let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
-        do {
-            try modelStoreService.registerBundledModel(modelID: "base", version: appVersion, fileURL: bundledModelURL)
-        } catch {
-            AppLogger.error(AppLogger.settings, "Failed to register bundled base model: \(error.localizedDescription)")
-        }
-    }
-
-    private func bundledBaseModelURL() -> URL? {
-        guard let resourceURL = Bundle.main.resourceURL else {
-            return nil
-        }
-
-        let candidates = [
-            resourceURL.appendingPathComponent("models/base/model.bin", isDirectory: false),
-            resourceURL.appendingPathComponent("models/base.bin", isDirectory: false),
-            resourceURL.appendingPathComponent("base.bin", isDirectory: false),
-        ]
-
-        return candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) })
-    }
-
-    private static func catalogRetryDelaySeconds(failureCount: Int) -> TimeInterval {
-        let schedule: [TimeInterval] = [5, 15, 30, 60, 120, 300]
-        let index = min(max(failureCount - 1, 0), schedule.count - 1)
-        return schedule[index]
+        modelManager.modelStatus(for: modelID)
     }
 
     private func setupEscapeMonitoring() {
@@ -851,5 +565,4 @@ final class AppModel: ObservableObject {
             }
         }
     }
-
 }
