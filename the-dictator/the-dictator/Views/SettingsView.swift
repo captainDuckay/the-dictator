@@ -39,11 +39,11 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Text(appModel.modelRuntimePreflightDescription)
+                Text(appModel.workflowRuntimePreflightDescription)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
-                if let runtimeIssue = appModel.transcriptionRuntimeIssue {
+                if let runtimeIssue = appModel.workflowRuntimeIssue {
                     VStack(alignment: .leading, spacing: 6) {
                         Label(runtimeIssue, systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
@@ -72,11 +72,11 @@ struct SettingsView: View {
                         .foregroundStyle(.orange)
                 }
 
-                Text(appModel.modelCatalogRefreshDescription)
+                Text(appModel.modelManagerCatalogRefreshDescription)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
-                ForEach(appModel.availableModels) { descriptor in
+                ForEach(appModel.modelManagerAvailableModels) { descriptor in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
                             Text(appModel.modelLabel(for: descriptor))
@@ -114,7 +114,7 @@ struct SettingsView: View {
                                         appModel.deleteModel(id: descriptor.id)
                                     }
                                 }
-                            } else if case .downloading = appModel.modelDownloadStates[descriptor.id] {
+                            } else if case .downloading = appModel.modelManagerDownloadStates[descriptor.id] {
                                 Button("Cancel") {
                                     appModel.cancelModelDownload(id: descriptor.id)
                                 }
@@ -139,9 +139,9 @@ struct SettingsView: View {
                     Button("Refresh Model Catalog") {
                         appModel.refreshModelCatalog(force: true)
                     }
-                    .disabled(appModel.isRefreshingModelCatalog)
+                    .disabled(appModel.modelManagerIsRefreshingCatalog)
 
-                    if appModel.isRefreshingModelCatalog {
+                    if appModel.modelManagerIsRefreshingCatalog {
                         ProgressView()
                             .controlSize(.small)
                     }
