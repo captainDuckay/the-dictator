@@ -211,13 +211,17 @@ final class AppModel: ObservableObject {
     private func setupHotkeyCallbacks() {
         hotkeyService?.onKeyDown = { [weak self] in
             Task { @MainActor in
-                await self?.dictationWorkflow.startDictation()
+                guard let self else { return }
+                AppLogger.diagnostic(AppLogger.workflow, "Hotkey callback: keyDown dispatched on MainActor")
+                await self.dictationWorkflow.startDictation()
             }
         }
 
         hotkeyService?.onKeyUp = { [weak self] in
             Task { @MainActor in
-                self?.dictationWorkflow.finishDictationHold()
+                guard let self else { return }
+                AppLogger.diagnostic(AppLogger.workflow, "Hotkey callback: keyUp dispatched on MainActor")
+                self.dictationWorkflow.finishDictationHold()
             }
         }
     }

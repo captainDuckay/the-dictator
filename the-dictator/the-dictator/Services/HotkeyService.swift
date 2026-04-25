@@ -122,6 +122,12 @@ final class HotkeyService {
 
         let eventKind = GetEventKind(eventRef)
 
+        if eventKind == UInt32(kEventHotKeyPressed) {
+            AppLogger.diagnostic(AppLogger.workflow, "Hotkey event received: keyDown")
+        } else if eventKind == UInt32(kEventHotKeyReleased) {
+            AppLogger.diagnostic(AppLogger.workflow, "Hotkey event received: keyUp")
+        }
+
         DispatchQueue.main.async {
             if eventKind == UInt32(kEventHotKeyPressed) {
                 service.onKeyDown?()

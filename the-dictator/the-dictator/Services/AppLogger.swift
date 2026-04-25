@@ -9,9 +9,23 @@ enum AppLogger {
     static let settings = Logger(subsystem: subsystem, category: "Settings")
     static let notifications = Logger(subsystem: subsystem, category: "Notifications")
 
+    static var diagnosticAudioRoutingEnabled: Bool {
+#if DEBUG || DIAGNOSTIC_AUDIO_ROUTING
+        true
+#else
+        false
+#endif
+    }
+
     static func debug(_ logger: Logger, _ message: String) {
 #if DEBUG
         logger.debug("\(message, privacy: .public)")
+#endif
+    }
+
+    static func diagnostic(_ logger: Logger, _ message: String) {
+#if DEBUG || DIAGNOSTIC_AUDIO_ROUTING
+        logger.info("[diag.audio] \(message, privacy: .public)")
 #endif
     }
 
