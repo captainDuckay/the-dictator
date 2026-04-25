@@ -4,25 +4,51 @@
   <img src="docs/assets/the-dictator-desktop-artwork.svg" alt="The Dictator artwork" width="720" />
 </p>
 
-A fast, local-first macOS dictation utility focused on reliable push-to-talk transcription.
+**Local-first push-to-talk dictation for macOS.**
+Built for technical users who want fast speech-to-text without sending audio to the cloud.
 
-## Documentation
+## Why this product
 
-- [Audio input routing manual test plan](docs/audio-input-routing-manual-test-plan.md)
-- [v1 release runbook](docs/release-runbook-v1.md)
-- [release notes template](docs/release-notes-template.md)
-- [unsigned macOS install guide](docs/install-macos-unsigned.md)
+The Dictator is designed to feel like a developer tool, not a consumer voice assistant:
 
-## Release (v1)
+- **Private by default** — transcription runs locally via `whisper.cpp`
+- **Deterministic workflow** — hold key to record, release to transcribe/insert
+- **Reliable fallback behavior** — if paste fails, transcript stays recoverable
+- **Low-friction UX** — menu bar app with global shortcuts and minimal UI overhead
 
-Canonical release path is GitHub Actions on **GitHub Release published** (stable releases only).
+## Core capabilities
 
-Workflow output artifacts:
-- `the-dictator-<version>-arm64.dmg`
+- Global **push-to-talk** hotkey (including modifier-only shortcuts)
+- Local model support with built-in model management
+- Optional **custom model path** for advanced users
+- Clipboard-safe insertion pipeline with best-effort clipboard restore
+- **Paste Last Transcript** action for recovery in blocked/secure app contexts
+- Live runtime/permission status in Settings (mic + accessibility)
+
+## How it works (in practice)
+
+1. Hold your shortcut to record.
+2. Release to run local transcription.
+3. Text is inserted into the focused app (or kept ready for manual paste fallback).
+
+## Installation (v1)
+
+Download release artifacts from GitHub Releases:
+
+- `the-dictator-<version>-arm64.dmg` (recommended)
 - `the-dictator-<version>-arm64.zip`
 - `the-dictator-<version>-arm64.sha256`
 
-Optional local build verification:
+> Current distribution is unsigned/not notarized. See install guide for Gatekeeper steps.
+
+## Documentation
+
+- [Unsigned macOS install guide](docs/install-macos-unsigned.md)
+- [v1 release runbook](docs/release-runbook-v1.md)
+- [Audio input routing manual test plan](docs/audio-input-routing-manual-test-plan.md)
+- [Release notes template](docs/release-notes-template.md)
+
+## Optional local release build verification
 
 ```bash
 scripts/build-unsigned-release-artifacts.sh --version 1.0.0
